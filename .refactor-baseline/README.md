@@ -41,7 +41,7 @@ también en el `<pre>` de la página. El harness consulta las islas a través de
 `el.shadowRoot ?? el`, así que el mismo archivo sirve antes y después de Shadow
 DOM (y por eso las 72 aserciones de la clase 2 siguen valiendo adentro del shadow).
 
-Qué comprueba (196 aserciones):
+Qué comprueba (237 aserciones):
 
 - **A** — los 11 componentes montan (light DOM o shadow root); `main.js` inyecta precio y portfolio; el panel pinta las 3 filas.
 - **F** — las secciones **estáticas** (hero, cómo funciona sin la tarjeta, seguridad, preguntas, footer) siguen idénticas al original congelado (el subárbol dinámico se enmascara).
@@ -143,8 +143,9 @@ La configuración vive en un módulo hoja, `src/js/config.js`, con dos secciones
   explorador. Es configuración: no se puede derivar y cambia según dónde esté
   desplegado. Lo dinámico es *cuál* entrada se usa: se elige en runtime con la
   cadena en la que está la wallet (`effectiveNetwork(await walletClient.getChainId())`).
-- **Constantes de app**: `SITE` (base de los links que se comparten) y
-  `PROFESSIONAL` (a quién le donan; en el producto real sale de la URL).
+- **Constantes de app**: `SITE` (base de los links que se comparten) y, **por
+  red**, `professional` + `professionalFor(chainId)` (a quién le donan; en el
+  producto real sale de la URL, y en anvil es la cuenta 0).
 
 Lo que **no** va ahí: el precio, los saldos y las donaciones (se leen de la
 chain) ni la dirección del usuario (sale de la wallet).

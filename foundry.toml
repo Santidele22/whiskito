@@ -4,3 +4,8 @@ out = "out"
 libs = ["lib"]
 remappings = ["@chainlink/contracts/=node_modules/@chainlink/contracts/"]
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+# Nodos RPC por nombre: la URL sale del `.env`, así no se escribe en la línea de
+# comandos. `--rpc-url amoy` resuelve a lo que diga `AMOY_RPC_URL`.
+[rpc_endpoints]
+amoy = "${AMOY_RPC_URL}"

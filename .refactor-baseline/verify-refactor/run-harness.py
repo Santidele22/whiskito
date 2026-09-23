@@ -2,7 +2,7 @@
 """Independent end-to-end driver for the Whiskito module refactor.
 
 Serves the repo root with the project's own no-store server, opens the existing
-196-assertion harness (.refactor-baseline/islands.html) in headless Firefox, and
+237-assertion harness (.refactor-baseline/islands.html) in headless Firefox, and
 reports: the harness verdict, every HTTP status the browser saw (a 404 is the
 signal for a broken module path), which expected modules were actually fetched,
 and any module-load error Firefox printed.

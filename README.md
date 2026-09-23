@@ -8,8 +8,10 @@ una plataforma de donaciones por creador). Nació con otro nombre y se rediseñ�
 renombre alcanzó a los web components (`whiskito-*`), a sus clases y a los eventos `whiskito:*`.
 
 > **Alcance:** sólo testnet y desarrollo local; no hay intención de operar en mainnet ni con valor
-> real. Hoy corre contra **anvil** (`chainId 31337`). **Sepolia está previsto pero no desplegado**:
-> la entrada existe comentada en `src/js/config.js`.
+> real. En desarrollo corre contra **anvil** (`chainId 31337`) y la red publicada es **Polygon
+> Amoy** (`chainId 80002`), que es donde se despliega el contrato (§6.1). **Sepolia es otra red**
+> (Ethereum, `chainId 11155111`) y sigue prevista pero no desplegada: su entrada está comentada en
+> `src/js/config.js` y no se confunde con Amoy.
 
 ## 0. Estado del proyecto
 
@@ -25,7 +27,8 @@ de lo que hay hoy y lo que falta.
 | **RedeemShop** | contrato propio | canjea el token por premios | 🔲 futuro |
 | **BadgeNFT** | ERC721 | coleccionables, por canje o por hito | 🔲 futuro |
 | **Factory** | contrato propio | un `Fund` por creador | 🔲 futuro — hoy hay **un contrato compartido** |
-| **Deploy en Sepolia** | — | red pública de pruebas | 🔲 futuro — hoy sólo local |
+| **Deploy en Polygon Amoy** | — | red pública de pruebas donde se publica la app | ✅ script `src/script/deploy-amoy.sol` — **la address del `Fund` queda pendiente de que se corra el deploy** y se pega en `src/js/config.js` (§6.1) |
+| **Publicación en Vercel** | — | publicar el `dist/` del build | 🔲 futuro — necesita un `vercel.json` con redirect (§6.1) |
 
 ## 1. Resumen
 
@@ -48,7 +51,8 @@ donante ──fund(profesional)──▶ Fund ──▶ balances[profesional] �
 | pieza | dónde | qué hace |
 |---|---|---|
 | contrato `Fund` | `src/script/fund.sol` | donaciones, validación en USD, saldos por beneficiario, retiros |
-| script de deploy | `src/script/deploy.sol` | despliega un `MockV3Aggregator(8, 2000e8)` y el `Fund` (sólo local) |
+| script de deploy local | `src/script/deploy.sol` | despliega un `MockV3Aggregator(8, 2000e8)` y el `Fund` (sólo local) |
+| script de deploy en Amoy | `src/script/deploy-amoy.sol` | despliega **sólo** el `Fund` con el feed real ETH/USD de Amoy; el oráculo ya existe en la red (§6.1) |
 | módulos de la app | `src/js/` | config, clientes, lecturas/escrituras, roles, formato, iconos, modo demo y su ledger |
 | islas (componentes) | `src/components/` | 11 web components que se pintan solos y avisan por eventos |
 | verificación | `.refactor-baseline/` | harness e2e en navegador real, sondas y anclas congeladas |
@@ -77,8 +81,19 @@ Se usa `AggregatorV3Interface` para leer ETH/USD on-chain.
 - **De dónde sale la dirección del feed:** de la documentación oficial de Chainlink para ese par y
   esa red (`docs.chain.link/data-feeds/price-feeds/addresses`), **nunca de memoria**. En el deploy
   local no se usa un feed real: `deploy.sol` despliega un `MockV3Aggregator` propio con respuesta
-  `2000e8` (2000 USD, 8 decimales) y es esa dirección la que recibe el constructor.
+  `2000e8` (2000 USD, 8 decimales) y es esa dirección la que recibe el constructor. En Amoy se usa
+  el feed **real** del directorio oficial, `0xF0d50568e3A7e8259E16663972b11910F89BD8e7`
+  (`description()` = `"ETH / USD"`, `decimals()` = 8, `latestRoundData()` fresco al fijarlo).
 - **Los decimales no se asumen:** `priceFeedDecimals` se lee del feed en el constructor.
+- **El contrato es agnóstico al feed:** lo recibe por constructor, le pregunta `decimals()` y
+  multiplica por `msg.value`. Lo único que importa es que el feed valué **la moneda que se envía**.
+  En Amoy la moneda nativa es **POL**, y ahí **no hay feed POL/USD** (el directorio oficial lista 17
+  feeds para Amoy: BTC, ETH, SOL, USDT, USDC, DAI, EUR, LINK, LINK/MATIC, SAND, tres de volatilidad
+  realizada y dos de Proof of Reserve; ninguno es POL). El `Fund` de Amoy queda valuado **con el
+  precio del ETH**: el "≈ $X USD" de la app y el piso de `MINIMUM_USD = 0.5 USD` miden ETH, no POL,
+  así que valen ~10.000× lo que el POL enviado realmente vale y en la práctica **cualquier polvo
+  pasa el mínimo**. Es una limitación de la demo en testnet, no un bug del contrato, y el copy del
+  producto dice "ETH" a propósito.
 
 Validaciones sobre el precio recibido (no se lee y se confía):
 
@@ -95,7 +110,8 @@ Validaciones sobre el precio recibido (no se lee y se confía):
 ### 3.3 Conversión de unidades
 
 `msg.value` llega en wei (18 decimales). El feed devuelve el precio con los decimales que diga
-`priceFeed.decimals()` (8 en el mock, pero nunca asumido). `getConversionRate(ethAmount)` calcula
+`priceFeed.decimals()` (8 tanto en el mock local como en el feed real de Amoy, pero nunca asumido).
+`getConversionRate(ethAmount)` calcula
 `scaleFactor = 10 ** (18 - decimals)` y escala **todo a 18 decimales** antes de comparar contra el
 piso de 0.5 USD, para no mezclar magnitudes.
 
@@ -194,8 +210,27 @@ producción, donde no hay nada que probar. `?site=https://…` lo fuerza y, fuer
 (los scripts de verificación importan `config.js` con Node), cae al dominio canónico.
 
 Eso obliga a que la ruta del link (`/u/0x…`) **exista**: el servidor de desarrollo la sirve con
-`appType: "spa"` (Vite la reescribe a `index.html`). Al publicar, el host tiene que hacer esa
-misma reescritura (`/u/*` → `/index.html`); si no, los links compartidos dan 404 en producción.
+`appType: "spa"` (Vite la reescribe a `index.html`). Al publicar, el host tiene que llevar esa ruta
+a `/donate.html` **con un redirect** —no con un rewrite: §5.5 explica por qué—, porque si no los
+links compartidos dan 404 o, peor, abren una página muerta.
+
+**La red por defecto depende del origen de la página** (`DEFAULT_CHAIN_ID`, en `src/js/config.js`),
+porque el mismo código sirve al desarrollo local y al sitio publicado:
+
+| origen | red por defecto |
+|---|---|
+| local —sin `location`, `file://`, `localhost`, loopback, IP de red privada (`10.`, `192.168.`, `172.16–31.`) o `.local` | **31337** (anvil) |
+| cualquier otro (el sitio publicado en Vercel, una IP pública) | **80002** (Polygon Amoy) |
+
+El motivo del caso local es concreto: el QR de desarrollo abre el servidor local desde el celular
+por la IP de LAN, y esa visita tiene que seguir apuntando a anvil. El override `?chain=` de la URL
+(§5.1) sigue ganando siempre.
+
+Y **el profesional por defecto también es por red**: `NETWORKS[red].professional` más
+`professionalFor(chainId)` en `config.js` — en anvil es la cuenta 0
+(`0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266`) y en Amoy la del dueño
+(`0x74ffced34e75fb4b31f18889fa2a4de66be34523`). El link `/u/0x…` y `?u=0x…` siguen mandando sobre
+ese valor.
 
 ### 5.1 Dos clientes, dos roles
 
@@ -209,8 +244,9 @@ haya conexión, y la red se elige con el `chainId` que reporta la wallet.
 
 Para hablar con el contrato hacen falta dos datos, y cada uno vive en un solo lugar:
 
-- **la dirección**: `src/js/config.js` (`NETWORKS` por `chainId`, con override por URL
-  `?chain=31337&rpc=http://…&fund=0x…`);
+- **la red y la dirección**: `src/js/config.js` (`NETWORKS` por `chainId`, con override por URL
+  `?chain=31337&rpc=http://…&fund=0x…`); en Amoy `NETWORKS[80002].fund` se completa con la address
+  que imprime el deploy (§6.1);
 - **el ABI**: `src/js/fund-abi.js` (legible, escrito a mano) y `src/fund.abi.json` (generado por
   `forge build`). Son dos copias: si cambia el contrato, se actualizan las dos.
 
@@ -300,8 +336,12 @@ Cómo llega el donante: `vite.config.js` tiene un plugin chico que manda `/u/<di
 deja las rutas de los assets del HTML **relativas**, así que si la página se sirviera *en* `/u/…`
 el navegador pediría `/u/js/donate.js` y recibiría el HTML con un 200 — el módulo no cargaría y la
 página quedaría muerta sin un solo error a la vista. En el build las rutas salen absolutas
-(`/assets/…`), así que al publicar un rewrite del host (`/u/*` → `/donate.html?u=:splat`) puede
-conservar la URL linda.
+(`/assets/…`).
+
+Al publicar, esa misma trampa obliga a un **redirect** y no un rewrite: la URL tiene que cambiar a
+`/donate.html`, porque con un rewrite la barra de direcciones sigue diciendo `/u/0x…` y el navegador
+pediría los assets relativos del HTML bajo `/u/`. Por eso el `vercel.json` del `dist/` (§6.1) lleva
+un `redirect` de `/u/:addr` a `/donate.html`, no un `rewrite`.
 
 **El dueño de la página no se dona a sí mismo** (con donaciones reales): si el que entra conecta
 la cuenta **dueña**, la tarjeta deshabilita el botón de donar y lo dice (el mismo mensaje que la
@@ -371,6 +411,86 @@ archivos viven en `dist/esm/`), `https://esm.sh/viem` → `viem` y `https://esm.
 `qrcode`. Sin los últimos dos, el build dejaría esas URLs como imports externos y `dist/` seguiría
 dependiendo de la red.
 
+### 6.1 Deploy en Polygon Amoy
+
+La red publicada es **Polygon Amoy**: `chainId 80002`, RPC público
+`https://polygon-amoy-bor-rpc.publicnode.com`, explorer `https://amoy.polygonscan.com` y moneda
+nativa **POL**.
+(`https://rpc-amoy.polygon.technology` no resuelve DNS en este entorno y `rpc.ankr.com` pide API
+key. El `.env` lleva `AMOY_RPC_URL`, que es lo que resuelve `--rpc-url amoy` vía `[rpc_endpoints]`
+de `foundry.toml`.)
+
+El script `src/script/deploy-amoy.sol` despliega **sólo** el `Fund`: el oráculo ya existe en la red
+(es el feed real ETH/USD, §3.2). El mock es cosa del deploy local.
+
+```bash
+# 1. una sola vez: keystore de Foundry para firmar el deploy sin poner la clave
+#    en la línea de comandos (te pide una password y la guarda cifrada).
+cast wallet import deployer --interactive
+
+# 2. el deploy. Pide la password del keystore.
+bun run deploy:amoy -- --with-gas-price 35gwei --priority-gas-price 30gwei
+# = forge script src/script/deploy-amoy.sol --rpc-url amoy --broadcast --account deployer \
+#     --with-gas-price 35gwei --priority-gas-price 30gwei
+# (los DOS flags de gas son por la trampa de abajo: sin ellos Foundry manda maxFee 127 gwei
+#  y prioridad 1 gwei, y con una cuenta de 0,1 POL el nodo rechaza la transacción)
+
+# 3. el script imprime la address del Fund. Se pega en src/js/config.js → NETWORKS[80002].fund
+#    (y el bloque del deploy, que también imprime el run, en NETWORKS[80002].deployBlock)
+
+# 4. ¿config.js coincide con el deploy?
+node .refactor-baseline/check-config.mjs
+# tiene que decir:  OK :: config.js coincide con el último deploy
+# si dice DRIFT, la app le está hablando a un contrato que no es
+```
+
+- **El `.env` no lleva claves privadas**: la firma sale del keystore (`--account deployer`).
+- **Trampa medida del proyecto** (la misma que en local, §6): `forge script … --broadcast` **sin**
+  `--account`/`--sender`/`--private-key` usa el *default sender* de Foundry, **no despliega nada**
+  (`cast code <dirección>` → `0x`) y **igual escribe** `broadcast/deploy-amoy.sol/80002/run-latest.json`.
+  Un deploy "exitoso" con una address que no existe en la chain es exactamente lo que `check-config`
+  marca como DRIFT.
+- **Verificar el código** en el explorer necesita `ETHERSCAN_API_KEY` en el `.env` (Etherscan V2
+  cubre Amoy con `--chain 80002`).
+- **El RPC de la app es publicnode, no drpc** (medido con `eth_getLogs` del evento `Funded` del
+  contrato real, contra los RPC públicos de Amoy; la fila de thirdweb es la medición del
+  orquestador, no repetida acá):
+
+  | RPC | `fromBlock: 0` | desde `deployBlock` (hoy ≈466 bloques) | 100 bloques |
+  |---|---|---|---|
+  | `https://polygon-amoy.drpc.org` (el que estaba) | rechaza (HTTP 400, `code 35`) | **rechaza** (HTTP 400) | OK |
+  | `https://polygon-amoy-bor-rpc.publicnode.com` (el que está) | rechaza (`exceed maximum block range: 10000`) | OK (0 eventos) | OK (0 eventos) |
+  | `https://80002.rpc.thirdweb.com` | rechaza (máx 1.000) | OK | OK |
+
+  El plan free de `drpc` acepta a lo sumo **100 bloques** por pedido: un rango de 200 ya lo rechaza
+  (y su mensaje —«ranges over 10000 blocks are not supported on free plan»— miente), así que no
+  puede servir un panel que lee eventos: con drpc la tabla de "Mi Panel" quedaría vacía en el sitio
+  publicado (en una medición previa, un rango de 466 bloques llegó a dar `HTTP 500`). publicnode
+  sirve hasta **10.000 bloques de diferencia** por pedido (medido: 10.001 bloques andan, 10.002 no),
+  y el head de Amoy avanza cada ~2 s, así que un pedido único "desde el deploy" dejaría de servir a
+  las pocas horas: `readDonationHistory` lee los eventos **por ventanas de 5.000 bloques hacia
+  atrás** desde el head, con piso en `NETWORKS[red].deployBlock` (`48371056` en Amoy, el bloque del
+  deploy real; `0` en anvil, donde el deploy sale del bloque 0).
+- **Gas, medido**: el deploy del `Fund` son **1.029.377 de gas** (~0,031 POL al precio efectivo
+  real). Dos trampas juntas, las dos medidas:
+  1. **`eth_gasPrice` en Amoy miente para el chequeo previo de saldo**: sugería **127,8 gwei**
+     cuando el piso real es **25–30 gwei** (80 bloques: 53 transacciones, la más barata 25 gwei,
+     51 bloques vacíos → no hay congestión). Como el nodo valida `gas × maxFeePerGas` **antes** de
+     aceptar, esa sugerencia con 0,1 POL en la cuenta da *fondos insuficientes* aunque el costo
+     real sea la cuarta parte. De ahí `--with-gas-price 35gwei` (deja el chequeo previo en
+     0,036 POL).
+  2. **Foundry deja la prioridad en 1 gwei** si no se la pasás (comprobado en un fork de Amoy), y
+     con el base fee en 0 el precio efectivo sería 1 gwei: por debajo del piso que aplica la red.
+     De ahí `--priority-gas-price 30gwei`, que es lo que pagaban las transacciones que sí entraron.
+  La cuenta necesita POL de testnet; el faucet de Polygon está en
+  [docs.polygon.technology/tools/gas/matic-faucet](https://docs.polygon.technology/tools/gas/matic-faucet).
+- **Limitación del oráculo en Amoy**: el feed disponible es ETH/USD y no hay POL/USD, así que el
+  mínimo en USD y el "≈ $X" quedan valuados en ETH (§3.2). El contrato no se toca por esto.
+- **La publicación en Vercel está pendiente.** Cuando se haga: el `dist/` de `bun run build`
+  necesita un `vercel.json` con un **redirect** de `/u/:addr` a `/donate.html` —y **no** un
+  rewrite—, porque en el rewrite la URL sigue siendo `/u/0x…` y los assets relativos del HTML se
+  pedirían bajo `/u/` (la trampa de §5.5 y de `vite.config.js`).
+
 ## 7. Verificación
 
 ```bash
@@ -394,7 +514,7 @@ la chain vuelva a cero. Además verifica el **modo demo de la landing** (su defa
 **no** pida ninguna firma, que no ensucie el resumen del panel, y que "Mi Panel" liste las
 **donaciones reales** de la chain (el harness manda una donación de verdad a una cuenta fresca y
 la busca en la tabla).
-Hoy son **196 aserciones**. Necesita anvil corriendo con el deploy hecho y el oráculo fresco (el
+Hoy son **237 aserciones**. Necesita anvil corriendo con el deploy hecho y el oráculo fresco (el
 mock arranca con la hora del deploy y el contrato rechaza precios de más de 3 h).
 
 La página que se comparte (`/u/0x…`) tiene su propia sonda, sobre el dev server —el único que
@@ -435,9 +555,12 @@ Lo que falta, en el orden en que se sostiene solo:
    `Fund`.
 4. **Factory** — un `Fund` por creador, para aislar fondos entre creadores, aceptando el costo de
    gas de cada deploy. La identidad y la URL por creador ya funcionan hoy sin Factory.
-5. **Deploy en Sepolia** — con el aggregator **real** de Chainlink (no el mock local): hay que
-   descomentar y completar la entrada de `NETWORKS` en `src/js/config.js` con la dirección que salga
-   de la documentación de Chainlink para esa red.
+5. **Publicar la app** — el `dist/` de `bun run build` en Vercel contra Amoy, con el `vercel.json`
+   del redirect de `/u/:addr` que pide §6.1. **Pendiente.**
+6. **Deploy en Sepolia** — otra red (Ethereum, `chainId 11155111`), no la publicada: con el
+   aggregator **real** de Chainlink (no el mock local) y descomentando y completando la entrada de
+   `NETWORKS` en `src/js/config.js` con la dirección que salga de la documentación de Chainlink para
+   esa red.
 
 Endurecimientos pendientes del contrato actual: la validación `answeredInRound >= roundId` (§3.2),
 sacar el error sin uso `ProfessionalIndexOutOfBounds`, y acotar el rango de bloques de
@@ -460,6 +583,7 @@ sacar el error sin uso `ProfessionalIndexOutOfBounds`, y acotar el rango de bloq
 src/
   script/fund.sol          el contrato
   script/deploy.sol        mock del oráculo + deploy local
+  script/deploy-amoy.sol   deploy en Polygon Amoy (sólo el Fund; el feed es real)
   fund.abi.json            ABI generado por forge
   index.html               la landing (importmap: lucide → node_modules)
   styles.css               hoja global (tokens, reset, secciones en light DOM)

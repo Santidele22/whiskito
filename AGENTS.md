@@ -15,17 +15,22 @@ build de Vite (`bun run build` → `dist/`) que existe **sólo para publicar** y
 las dependencias adentro.
 
 Consecuencia práctica: el **`README.md` de la raíz documenta el proyecto** (producto, contrato,
-frontend, cómo correrlo y verificarlo, y el roadmap: token ERC20, RedeemShop, BadgeNFT, Factory,
-Sepolia). El detalle de la verificación y de cada clase del curso está en
-`.refactor-baseline/README.md`, y el contrato de copy y estructura del rediseño «Blues Poster '62»
-en `.refactor-baseline/DESIGN-SPEC.md`.
+frontend, cómo correrlo y verificarlo, el deploy en Polygon Amoy y el roadmap: token ERC20,
+RedeemShop, BadgeNFT, Factory, publicar en Vercel, Sepolia). El detalle de la verificación y de cada
+clase del curso está en `.refactor-baseline/README.md`, y el contrato de copy y estructura del
+rediseño «Blues Poster '62» en `.refactor-baseline/DESIGN-SPEC.md`.
+
+**Estado de red:** el desarrollo es **anvil** (`chainId 31337`) y la red **publicada** es **Polygon
+Amoy** (`chainId 80002`, nativa **POL**, feed ETH/USD, explorer `amoy.polygonscan.com`). **Sepolia
+es otra red** (Ethereum, `11155111`) y sólo está prevista. La publicación en Vercel **no está hecha**.
 
 ## 1. Mapa
 
 | ruta | qué hay |
 |---|---|
 | `src/script/fund.sol` | el contrato: `fund(address professional) payable`, `withdraw(uint256)`, `withdrawAll()`, eventos `Funded`/`Withdrawn`, errores custom |
-| `src/script/deploy.sol` | deploy local: `MockV3Aggregator(8, 2000e8)` + `Fund` |
+| `src/script/deploy.sol` | deploy **local y nada más** (anvil): `MockV3Aggregator(8, 2000e8)` + `Fund` |
+| `src/script/deploy-amoy.sol` | deploy en **Polygon Amoy**: despliega **sólo** el `Fund` con el feed ETH/USD real (el oráculo ya existe en la red); lo corre `bun run deploy:amoy` = `forge script … --rpc-url amoy --broadcast --account deployer --with-gas-price 35gwei --priority-gas-price 30gwei` (ver §4) |
 | `src/js/main.js` | punto de entrada: registra los componentes y llama a `startApp()`; **sin lógica** |
 | `src/js/app.js` | el flujo: rol del visitante, conectar/desconectar, donar, retirar y el bootstrap |
 | `src/js/islands.js` | **la única frontera con el DOM**: busca las islas **al usarlas** (tolera que falten) y les escribe propiedades |
@@ -36,7 +41,7 @@ en `.refactor-baseline/DESIGN-SPEC.md`.
 | `src/js/chain.js` | clientes: red activa, cliente de lectura HTTP, cliente de wallet |
 | `src/js/viewer-role.js` | rol derivado (`guest`/`donor`/`owner`), `canDonate`, `canWithdraw` |
 | `src/js/demo-mode.js` | módulo hoja: `DEMO`, el modo **de la landing** (default **true**; `?demo=0` o `?real=1` lo apagan). La página del link no lo usa |
-| `src/js/config.js` | módulo hoja: `NETWORKS` por chainId, `PROFESSIONAL`, `SITE` |
+| `src/js/config.js` | módulo hoja: `NETWORKS` por chainId (con `professional` por red), `professionalFor(chainId)`, `DEFAULT_CHAIN_ID` según el origen, `SITE` |
 | `vite.config.js` | Vite: servidor de desarrollo y `bun run build` → `dist/` (bundle sin CDN); raíz `src` |
 | `scripts/dev.sh` | lo que corre `bun run dev`: anvil (si falta), deploy (si falta) y Vite, con limpieza |
 | `src/components/` | 11 web components ("islas"); `base-element.js` es la base |
@@ -86,6 +91,16 @@ en `.refactor-baseline/DESIGN-SPEC.md`.
 8. **`config.js` es módulo hoja**: no importa nada ni toca el DOM. Direcciones por `chainId`,
    con override por URL (`?chain=31337&rpc=http://…&fund=0x…`) para demos y para probar un nodo
    caído.
+8b. **La red por defecto depende del ORIGEN, no de una constante.** `DEFAULT_CHAIN_ID` resuelve a
+   **31337** si el hostname es local (`localhost`, loopback, `file://`/sin `location`, red privada
+   `10.`/`192.168.`/`172.16–31.`, o `.local` — así el QR de dev, que abre el server local desde el
+   celular por IP de LAN, sigue apuntando a anvil) y a **80002** en cualquier otro origen (el sitio
+   publicado en Vercel). El override `?chain=` de la URL gana siempre.
+8c. **El profesional por defecto es POR RED**: `NETWORKS[red].professional` + `professionalFor(chainId)`
+   (reemplaza a la vieja constante `PROFESSIONAL`). En anvil es la cuenta 0
+   (`0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266`), en Amoy la del dueño
+   (`0x74ffced34e75fb4b31f18889fa2a4de66be34523`). El link `/u/0x…` y `?u=0x…` siguen mandando
+   sobre ese valor.
 9. **Identificadores en inglés, describiendo lo que hacen** (`writeAndConfirm`, `simulateWrite`,
    `confirmReceipt`); comentarios y texto de cara al usuario en español.
 10. **El ABI está dos veces** (`src/js/fund-abi.js` a mano y `src/fund.abi.json` de forge): si
@@ -123,7 +138,7 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
 - `run-harness.py` levanta `serve.py` (con `no-store`), abre `.refactor-baseline/islands.html` en
   Firefox headless y reporta `OK(n/n)` o `FALLOS(k/n)` más los status HTTP (un 404 delata una
   ruta rota) y los módulos que la página bajó de verdad. **Es la puerta de aceptación.** Hoy son
-  **196 aserciones**, e incluyen el modo demo (que donar **no** pida firma ni deje rastro), "Mi
+  **237 aserciones**, e incluyen el modo demo (que donar **no** pida firma ni deje rastro), "Mi
   Panel" leyendo donaciones reales de la chain y el camino real con `?demo=0`.
 - Necesita **anvil en `http://127.0.0.1:8545` (chainId 31337) con el deploy hecho y el oráculo
   fresco**. El harness se prepara su propio estado: dona de verdad y retira.
@@ -161,12 +176,25 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
   deploy). Se refresca sin permisos:
   `cast send 0x5fbdb2315678afecb367f032d93f642f64180aa3 "updateAnswer(int256)" 200000000000 --unlocked --from 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 --rpc-url http://127.0.0.1:8545`.
   **No cambies el 2000e8**: varias aserciones derivan de ese precio.
-- **El deploy local necesita sender explícito**: con `forge` 1.8.3, `forge script … --broadcast`
-  **sin** `--sender`/`--private-key` usa el *default sender* de Foundry, **no despliega nada**
-  (`cast code <dirección>` → `0x`) y **igual escribe `broadcast/deploy.sol/31337/run-latest.json`**
-  con las direcciones de esa otra cuenta: queda un `check-config` en DRIFT sin nada en la chain.
-  La forma que sí reproduce `config.js` es `--unlocked --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266`
-  (cuenta 0 de anvil, la misma de `PROFESSIONAL`): es lo que corre `bun run deploy`.
+- **El deploy necesita firmante explícito, en local y en Amoy**: con `forge` 1.8.3, `forge script …
+  --broadcast` **sin** `--account`/`--sender`/`--private-key` usa el *default sender* de Foundry,
+  **no despliega nada** (`cast code <dirección>` → `0x`) y **igual escribe** el
+  `broadcast/<script>/<chainId>/run-latest.json` (con las direcciones de esa otra cuenta): queda un
+  `check-config` en DRIFT sin nada en la chain, y el run *parece* exitoso.
+  - Local: la forma que sí reproduce `config.js` es `--unlocked --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266`
+    (cuenta 0 de anvil, la de `professionalFor(31337)`): es lo que corre `bun run deploy`.
+  - Amoy: la firma sale del **keystore de Foundry** (`cast wallet import deployer --interactive`,
+    una sola vez) y el `.env` **no** lleva claves privadas. Es lo que corre `bun run deploy:amoy`
+    (`--account deployer --with-gas-price 35gwei --priority-gas-price 30gwei`, ver la trampa de gas
+    de abajo); después la address del `Fund` se pega en `NETWORKS[80002].fund` y lo confirma
+    `node .refactor-baseline/check-config.mjs` (`OK :: config.js coincide con el último deploy`).
+- **El gas de Amoy miente dos veces, y las dos se pagan**: (1) `eth_gasPrice` sugiere **~128 gwei**
+  cuando el piso real medido es **25–30 gwei** (80 bloques: 53 tx, la más barata 25; 51 vacíos), y el
+  nodo valida `gas × maxFeePerGas` **antes** de aceptar: con 0,1 POL en la cuenta esa sugerencia da
+  *fondos insuficientes* aunque el costo real (1.029.377 de gas) sea 0,031 POL; (2)
+  `--with-gas-price` **solo no alcanza**, porque Foundry deja `maxPriorityFeePerGas` en **1 gwei**
+  (medido en un fork) y con el base fee en 0 el precio efectivo quedaría por debajo del piso que
+  aplica la red. Por eso el deploy va con **`--with-gas-price 35gwei --priority-gas-price 30gwei`**.
 - **viem estima el gas antes de firmar**, así que una transacción que revierte a propósito nunca
   se manda. Para minar una que revierta igual hay que pasar `gas` explícito (o
   `cast send --gas-limit …`).
@@ -212,6 +240,25 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
   archivos por actividad concurrente en el workspace. Lo congelado que importa está versionado
   ahí mismo y no se regenera sin querer.
 - **El repo no tiene ningún commit**: no hay historia de git de la que recuperar nada.
+- **El RPC de Amoy de `config.js` no puede ser `drpc`**, y el rango de eventos no puede ser "desde
+  el bloque 0". Medido con `eth_getLogs` del evento `Funded` del contrato real: el plan free de
+  `polygon-amoy.drpc.org` acepta a lo sumo **100 bloques** por pedido (200 ya los rechaza con HTTP
+  400 y `fromBlock: 0` también; su mensaje «ranges over 10000 blocks» miente), así que la tabla de
+  "Mi Panel" quedaría vacía en el sitio publicado. `…-bor-rpc.publicnode.com` sí los sirve, hasta
+  10.000 bloques de diferencia por pedido (medido: 10.001 bloques andan, 10.002 no). Por eso el RPC
+  es publicnode y `readDonationHistory` pide los eventos **por ventanas de 5.000 bloques** hacia
+  atrás desde el head, con piso en `NETWORKS[red].deployBlock` (Amoy `48371056`, el bloque del
+  deploy; anvil `0`): el head de Amoy avanza cada ~2 s, así que un pedido único desde el deploy
+  dejaría de entrar en el tope a las pocas horas. Costo a tener en cuenta: el bucle sólo corta al
+  juntar `limit` eventos o al llegar al piso, así que un panel **sin donaciones** cuesta un pedido
+  por cada 5.000 bloques de vida del contrato (~2,8 h de chain): hoy es **1** pedido, al mes de
+  chain serían ~260. Con donaciones corta antes.
+- **El feed de Amoy es ETH/USD, y en Amoy se manda POL**: no hay feed POL/USD en Amoy (el
+  directorio oficial no lo lista), así que el `Fund` de Amoy valúa `msg.value` (POL) con el precio
+  del ETH y el piso de `MINIMUM_USD = 0.5` queda ~10.000× por debajo de lo que dice. No es un bug
+  del contrato —`Fund` es agnóstico al feed: lo recibe por constructor, lee `decimals()` y multiplica
+  por `msg.value`— y **no se cambia el contrato ni el copy de la UI**: es una limitación de la demo
+  en testnet. Lo que importa es que el feed valué la moneda que se envía.
 
 ## 5. Prohibiciones
 
@@ -229,6 +276,8 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
   algo estático y ver que F falla) que sigue siendo una comparación real y no un archivo que
   coincide trivialmente. Regenerarla sin ese control es lo que la prohibición original cuidaba.
 - No matar el anvil del 8545 ni levantar otro ahí; no deployar a una red que no sea local sin que
-  lo pidan.
+  lo pidan. En Amoy el deploy es deliberado y lo corre el usuario con su keystore (`bun run
+  deploy:amoy`): no lo dispares para "probar", y nunca escribas una address inventada en
+  `NETWORKS[80002].fund`.
 - No debilitar ni borrar aserciones para que una corrida pase. Si una aserción molesta, se discute
   su premisa y se explica en el reporte; no se afloja.

@@ -4,7 +4,8 @@
     "dev": "bash scripts/dev.sh",
     "build": "bunx --bun vite build",
     "preview": "bunx --bun vite preview",
-    "deploy": "forge script src/script/deploy.sol --rpc-url http://127.0.0.1:8545 --broadcast --unlocked --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+    "deploy": "forge script src/script/deploy.sol --rpc-url http://127.0.0.1:8545 --broadcast --unlocked --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+    "deploy:amoy": "forge script src/script/deploy-amoy.sol --rpc-url amoy --broadcast --account deployer"
   },
   "dependencies": {
     "@chainlink/contracts": "^1.5.0",

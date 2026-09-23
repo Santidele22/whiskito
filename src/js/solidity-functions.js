@@ -27,6 +27,19 @@ export async function readEthPrice() {
 }
 
 /**
+ * Cuántos bloques abarca cada pedido de eventos `Funded`, caminando hacia atrás
+ * desde el head.
+ *
+ * Por qué existe: medido contra los RPC públicos de Amoy con `eth_getLogs`, el
+ * que usa la app (publicnode) corta el rango en **10.000 bloques**. Pedir desde
+ * el deploy no es una opción en una red real: son ~48 millones de bloques y,
+ * además, el head de Amoy avanza cada ~2 s, así que un único pedido grande
+ * dejaría de entrar en el tope a las pocas horas. 5.000 deja la mitad del tope
+ * como margen.
+ */
+const EVENT_WINDOW_BLOCKS = 5000n;
+
+/**
  * Todas las donaciones que recibió `professional`, más nuevas primero, con la
  * forma que pinta "Mi Panel" (`donorShort` / `amountEth`).
  *
@@ -40,13 +53,36 @@ export async function readEthPrice() {
  */
 export async function readDonationHistory(professional, { limit = 200 } = {}) {
   const client = getPublicClient();
-  const events = await client.getContractEvents({
-    address: getActiveNetwork().fund,
-    abi: FUND_ABI,
-    eventName: "Funded",
-    args: { professional },
-    fromBlock: 0n, // en anvil alcanza; en una red real conviene acotar el rango
-  });
+  const network = getActiveNetwork();
+  // El piso lo declara cada red en `NETWORKS` (config.js): es el primer bloque
+  // en el que existe el contrato, o sea el deploy. Por debajo no hay eventos y
+  // pedirlos es tirar el rango a la basura (en Amoy, 48 millones de bloques).
+  const floor = BigInt(network.deployBlock ?? 0n);
+  const head = await client.getBlockNumber();
+  // Se pide por ventanas hacia atrás desde el head, sin bajar del deploy, y se
+  // corta al juntar `limit` eventos: así el pedido entra en el tope del RPC por
+  // más que la chain crezca, y sigue trayendo lo mismo (lo más nuevo primero).
+  let events = [];
+  let toBlock = head;
+  while (events.length < limit && toBlock >= floor) {
+    const fromBlock =
+      toBlock - EVENT_WINDOW_BLOCKS + 1n > floor
+        ? toBlock - EVENT_WINDOW_BLOCKS + 1n
+        : floor;
+    const chunk = await client.getContractEvents({
+      address: network.fund,
+      abi: FUND_ABI,
+      eventName: "Funded",
+      args: { professional },
+      fromBlock,
+      toBlock,
+    });
+    // Cada ventana llega de más viejo a más nuevo y las ventanas van hacia
+    // atrás, así que lo viejo se ANTEPONE a lo acumulado y el orden queda igual
+    // al de un pedido único.
+    events = chunk.concat(events);
+    toBlock = fromBlock - 1n;
+  }
   // Los eventos llegan de más viejo a más nuevo: se cortan los últimos y se
   // invierte. Se calcula el índice en vez de usar `slice(-limit)` porque con
   // `limit = 0` ese `-0` no corta nada y devolvería la historia entera.

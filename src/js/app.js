@@ -1,6 +1,6 @@
 import * as islands from "./islands.js";
 
-import { PROFESSIONAL, SITE } from "./config.js";
+import { professionalFor, SITE } from "./config.js";
 
 import {
   VIEWER_ROLE,
@@ -18,6 +18,7 @@ import { DEMO } from "./demo-mode.js";
 import {
   connectWallet,
   disconnectWallet,
+  getActiveNetwork,
   getWalletClient,
   hasWallet,
   onWalletAccountsChange,
@@ -244,8 +245,10 @@ async function onFundRequest(event) {
   islands.setDonateStatus("pending");
   try {
     // Ojo con `??`: sin dueño, `pageOwner` es "" (no null), y "" no dispara el
-    // fallback. Con `||` la demo vuelve a mostrar PROFESSIONAL, como antes.
-    const recipient = pageOwner || PROFESSIONAL;
+    // fallback. Con `||` la demo cae al profesional de la red ACTIVA (la de la
+    // wallet): en Amoy tiene que cobrar el dueño del deploy, no la cuenta 0 de
+    // anvil. Sin red activa, el default de `professionalFor` ya resuelve.
+    const recipient = pageOwner || professionalFor(getActiveNetwork()?.chainId);
     const receipt = await fund({ amount, professional: recipient, demo: DEMO });
     if (receipt.demo) {
       // Modo demo: no se firmó nada ni se gastó gas, y tampoco se anota en

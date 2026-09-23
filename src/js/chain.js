@@ -23,11 +23,17 @@ const accountChangeHandlers = new Set();
  */
 let accountsSubscribed = false;
 
+/**
+ * La moneda nativa de la red. Cada entrada de `NETWORKS` (config.js) la declara
+ * —anvil usa Ether, Amoy usa POL—; si una red no la declara, se cae a Ether/ETH.
+ */
+const DEFAULT_NATIVE_CURRENCY = { name: "Ether", symbol: "ETH", decimals: 18 };
+
 export function chainFromConfig(config) {
   return defineChain({
     id: config.chainId,
     name: config.name,
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    nativeCurrency: config.nativeCurrency ?? DEFAULT_NATIVE_CURRENCY,
     rpcUrls: { default: { http: [config.rpc] } },
   });
 }

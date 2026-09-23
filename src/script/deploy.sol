@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.7;
-//import "@chainlink/contracts/src/v0.8/shared/mocks/MockV3Aggregator.sol";
-import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import "@chainlink/contracts/src/v0.8/shared/mocks/MockV3Aggregator.sol";
 import {Script, console} from "forge-std/Script.sol";
 import {Fund} from "./fund.sol";
 
+// Deploy LOCAL (anvil, chainId 31337): el oráculo es un mock, no un feed real.
+// Para Polygon Amoy el script es src/script/deploy-amoy.sol.
 contract DeployScript is Script {
     function run() public {
         vm.startBroadcast();
+        MockV3Aggregator mockPriceFeed = new MockV3Aggregator(8, 2000e8);
 
-        //MockV3Aggregator mockPriceFeed = new MockV3Aggregator(8, 2000e8);
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(0x694AA1769357215DE4FAC081bf1f309aDC325306);
-
-        Fund fund = new Fund(address(priceFeed));
+        Fund fund = new Fund(address(mockPriceFeed));
         console.log("Counter deployed at:", address(fund));
 
         vm.stopBroadcast();

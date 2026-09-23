@@ -31,8 +31,8 @@ especificador multilínea roto y un especificador con espacio final.
 python3 .refactor-baseline/verify-refactor/run-harness.py 8897
 ```
 
-Levanta `serve.py` con `no-store`, abre `islands.html` (las 196 aserciones de
-islas reactivas, Shadow DOM, QR y radio), y reporta el veredicto, **los 131
+Levanta `serve.py` con `no-store`, abre `islands.html` (las 237 aserciones de
+islas reactivas, Shadow DOM, QR y radio), y reporta el veredicto, **los 284
 pedidos HTTP con su status** (un `404` es la señal directa de una ruta rota) y
 qué módulos esperados bajó la página. Sale con código 1 si algo falla.
 
