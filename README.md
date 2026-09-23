@@ -27,8 +27,8 @@ de lo que hay hoy y lo que falta.
 | **RedeemShop** | contrato propio | canjea el token por premios | 🔲 futuro |
 | **BadgeNFT** | ERC721 | coleccionables, por canje o por hito | 🔲 futuro |
 | **Factory** | contrato propio | un `Fund` por creador | 🔲 futuro — hoy hay **un contrato compartido** |
-| **Deploy en Polygon Amoy** | — | red pública de pruebas donde se publica la app | ✅ script `src/script/deploy-amoy.sol` — **la address del `Fund` queda pendiente de que se corra el deploy** y se pega en `src/js/config.js` (§6.1) |
-| **Publicación en Vercel** | — | publicar el `dist/` del build | 🔲 futuro — necesita un `vercel.json` con redirect (§6.1) |
+| **Deploy en Polygon Amoy** | — | red pública de pruebas donde se publica la app | ✅ `Fund` desplegado en `0xc92b…3fEF8` (bloque 48371056) por `src/script/deploy-amoy.sol`, declarado en `src/js/config.js` (§6.1) |
+| **Publicación en Vercel** | — | publicar el `dist/` del build | ✅ **https://whiskito.vercel.app** — proyecto `whiskito`, conectado al repo: `main` despliega solo (§6.1) |
 
 ## 1. Resumen
 
@@ -91,8 +91,9 @@ Se usa `AggregatorV3Interface` para leer ETH/USD on-chain.
   feeds para Amoy: BTC, ETH, SOL, USDT, USDC, DAI, EUR, LINK, LINK/MATIC, SAND, tres de volatilidad
   realizada y dos de Proof of Reserve; ninguno es POL). El `Fund` de Amoy queda valuado **con el
   precio del ETH**: el "≈ $X USD" de la app y el piso de `MINIMUM_USD = 0.5 USD` miden ETH, no POL,
-  así que valen ~10.000× lo que el POL enviado realmente vale y en la práctica **cualquier polvo
-  pasa el mínimo**. Es una limitación de la demo en testnet, no un bug del contrato, y el copy del
+  así que valen ~25.000× lo que el POL enviado realmente vale (medido el 2026-09-23, con POL ≈ $0,10:
+  el piso son **0,000187 POL**, o sea ~$0,00002 reales) y en la práctica **cualquier polvo pasa el
+  mínimo**. Es una limitación de la demo en testnet, no un bug del contrato, y el copy del
   producto dice "ETH" a propósito.
 
 Validaciones sobre el precio recibido (no se lee y se confía):
@@ -340,8 +341,8 @@ página quedaría muerta sin un solo error a la vista. En el build las rutas sal
 
 Al publicar, esa misma trampa obliga a un **redirect** y no un rewrite: la URL tiene que cambiar a
 `/donate.html`, porque con un rewrite la barra de direcciones sigue diciendo `/u/0x…` y el navegador
-pediría los assets relativos del HTML bajo `/u/`. Por eso el `vercel.json` del `dist/` (§6.1) lleva
-un `redirect` de `/u/:addr` a `/donate.html`, no un `rewrite`.
+pediría los assets relativos del HTML bajo `/u/`. Por eso el `vercel.json` de la **raíz del repo**
+—el que publica `dist/`— (§6.1) lleva un `redirect` de `/u/:addr` a `/donate.html`, no un `rewrite`.
 
 **El dueño de la página no se dona a sí mismo** (con donaciones reales): si el que entra conecta
 la cuenta **dueña**, la tarjeta deshabilita el botón de donar y lo dice (el mismo mensaje que la
@@ -486,15 +487,29 @@ node .refactor-baseline/check-config.mjs
   [docs.polygon.technology/tools/gas/matic-faucet](https://docs.polygon.technology/tools/gas/matic-faucet).
 - **Limitación del oráculo en Amoy**: el feed disponible es ETH/USD y no hay POL/USD, así que el
   mínimo en USD y el "≈ $X" quedan valuados en ETH (§3.2). El contrato no se toca por esto.
-- **La publicación en Vercel está pendiente.** Cuando se haga: el `dist/` de `bun run build`
-  necesita un `vercel.json` con un **redirect** de `/u/:addr` a `/donate.html` —y **no** un
-  rewrite—, porque en el rewrite la URL sigue siendo `/u/0x…` y los assets relativos del HTML se
-  pedirían bajo `/u/` (la trampa de §5.5 y de `vite.config.js`).
+
+**Publicación del frontend**
+
+- **El sitio está publicado** en <https://whiskito.vercel.app> (proyecto Vercel `whiskito`, cuenta
+  `santidele22`). El build corre **en Vercel**, no en tu máquina: `vercel.json` (raíz del repo) fija
+  `bun install` + `bun run build` y `outputDirectory: dist`, y el bundle servido trae los mismos
+  hashes que el `dist/` local —es el mismo artefacto—. No hay que subir `dist/` a mano.
+- **El repo está conectado a Vercel** (`vercel git connect`): **pushear a `main` despliega a
+  producción solo**, y cada PR saca un *preview*. Para forzar un deploy desde el repo:
+  `vercel deploy --prod --project whiskito`.
+- **La ruta `/u/0x…` publicada es un redirect, no un rewrite** (`vercel.json`:
+  `/u/:addr(0x[0-9a-fA-F]{40})` → `/donate.html?u=:addr`, más una variante para la barra final).
+  Tiene que ser redirect: con un rewrite la barra de direcciones seguiría diciendo `/u/0x…` y el
+  navegador pediría bajo `/u/` los assets relativos del HTML (la trampa de §5.5 y de
+  `vite.config.js`). Verificado en vivo: `/` responde `200`; un link bien formado responde `307`
+  conservando `?chain=` y `?demo=`; y una ruta con menos de 40 dígitos hex (`/u/0x1234`) da **404**
+  en vez de redirigir, porque el patrón exige la dirección completa.
 
 ## 7. Verificación
 
 ```bash
-# lo mismo que corre el CI (.github/workflows/test.yml)
+# los chequeos sin navegador del job `check` del CI; el job `e2e` corre además esta puerta
+# completa (harness + sonda). Detalle en .github/workflows/README.md
 forge fmt --check && forge build --sizes && forge test
 
 # ¿las direcciones de config.js coinciden con el último deploy?
@@ -539,7 +554,8 @@ harness de navegador, no una suite de Solidity.
 
 ## 8. Roadmap
 
-Lo que falta, en el orden en que se sostiene solo:
+Lo que falta, en el orden en que se sostiene solo. **Publicar la app ya está hecho** (§6.1): el sitio
+vive en <https://whiskito.vercel.app> contra Amoy y `main` despliega solo.
 
 1. **WhiskitoCoin (ERC20)** — recompensa por donar. Cada donación dispara un `mint()` al donante, y
    esa función tiene que estar **restringida** (sólo los contratos autorizados pueden acuñar) para
@@ -555,9 +571,11 @@ Lo que falta, en el orden en que se sostiene solo:
    `Fund`.
 4. **Factory** — un `Fund` por creador, para aislar fondos entre creadores, aceptando el costo de
    gas de cada deploy. La identidad y la URL por creador ya funcionan hoy sin Factory.
-5. **Publicar la app** — el `dist/` de `bun run build` en Vercel contra Amoy, con el `vercel.json`
-   del redirect de `/u/:addr` que pide §6.1. **Pendiente.**
-6. **Deploy en Sepolia** — otra red (Ethereum, `chainId 11155111`), no la publicada: con el
+5. **Verificar el `Fund` en Polygonscan** — el contrato de Amoy está **sin verificar**: falta
+   `ETHERSCAN_API_KEY` en el `.env` (§6.1).
+6. **Tests de forge** — `test/` sigue vacío, así que `forge test` pasa sin correr nada (§7). Hoy la
+   verificación real es el harness de navegador.
+7. **Deploy en Sepolia** — otra red (Ethereum, `chainId 11155111`), no la publicada: con el
    aggregator **real** de Chainlink (no el mock local) y descomentando y completando la entrada de
    `NETWORKS` en `src/js/config.js` con la dirección que salga de la documentación de Chainlink para
    esa red.
@@ -601,5 +619,5 @@ src/
                            (whiskito-dashboard es el modal "Mi Panel")
 test/                      vacío
 .refactor-baseline/        andamiaje de verificación (descartable)
-.github/workflows/test.yml CI: forge fmt / build / test
+.github/workflows/test.yml CI: dos jobs (`check` + `e2e`, ver su README)
 ```

@@ -16,13 +16,15 @@ las dependencias adentro.
 
 Consecuencia práctica: el **`README.md` de la raíz documenta el proyecto** (producto, contrato,
 frontend, cómo correrlo y verificarlo, el deploy en Polygon Amoy y el roadmap: token ERC20,
-RedeemShop, BadgeNFT, Factory, publicar en Vercel, Sepolia). El detalle de la verificación y de cada
+RedeemShop, BadgeNFT, Factory, verificar en Polygonscan, Sepolia). El detalle de la verificación y de cada
 clase del curso está en `.refactor-baseline/README.md`, y el contrato de copy y estructura del
 rediseño «Blues Poster '62» en `.refactor-baseline/DESIGN-SPEC.md`.
 
 **Estado de red:** el desarrollo es **anvil** (`chainId 31337`) y la red **publicada** es **Polygon
 Amoy** (`chainId 80002`, nativa **POL**, feed ETH/USD, explorer `amoy.polygonscan.com`). **Sepolia
-es otra red** (Ethereum, `11155111`) y sólo está prevista. La publicación en Vercel **no está hecha**.
+es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está publicado** en
+<https://whiskito.vercel.app> (proyecto Vercel `whiskito`) y el repo está **conectado a Vercel**:
+`main` despliega a producción solo y los PRs sacan preview (§3).
 
 ## 1. Mapa
 
@@ -127,7 +129,7 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. La publicación en 
 ```bash
 export PATH="$HOME/.foundry/bin:$PATH"
 
-forge fmt --check && forge build --sizes        # lo que corre el CI (.github/workflows/test.yml)
+forge fmt --check && forge build --sizes && forge test   # job `check` del CI: dos jobs, ver abajo
 node .refactor-baseline/check-config.mjs        # ¿config.js coincide con el último deploy?
 node .refactor-baseline/verify-refactor/resolve-imports.mjs . src/index.html   # grafo de imports
 for f in src/js/*.js src/components/*.js; do node --check "$f" || echo "FALLA $f"; done  # sintaxis
@@ -167,7 +169,12 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
   **no corre en este sandbox** (se cuelga antes del veredicto; su diseño con XHR síncrono era para
   un entorno donde los timers de página no disparan). Se conserva como referencia, pero **no es
   puerta de nada**.
-- No corras dos harness en paralelo: comparten el mismo anvil y los mismos saldos.
+- **El CI son dos jobs** (`.github/workflows/test.yml`, detalle en `.github/workflows/README.md`):
+  `check` —fmt, build, `forge test -vvv`, `node --check`, `resolve-imports`, `check-config` y
+  `bun run build`— y `e2e`, que corre **esta misma puerta** (harness + probe, secuenciales) en
+  ~3,5 min. Si el CI ya la corrió sobre tu commit, **no la repitas a mano**.
+- Los dos runners de la puerta exigen anvil en **8545**: no aceptan otro puerto, así que **no se
+  paralelizan** entre sí ni con un harness local — comparten chain y saldos.
 
 ## 4. Trampas ya pagadas (no las vuelvas a pagar)
 
@@ -239,7 +246,8 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
 - **`.refactor-baseline/` no es un lugar seguro para artefactos únicos**: ya desaparecieron
   archivos por actividad concurrente en el workspace. Lo congelado que importa está versionado
   ahí mismo y no se regenera sin querer.
-- **El repo no tiene ningún commit**: no hay historia de git de la que recuperar nada.
+- **La historia está en `origin`** (`github.com/Santidele22/whiskito`): lo pusheado es la fuente de
+  verdad, y `main` despliega el sitio solo (§0, §3).
 - **El RPC de Amoy de `config.js` no puede ser `drpc`**, y el rango de eventos no puede ser "desde
   el bloque 0". Medido con `eth_getLogs` del evento `Funded` del contrato real: el plan free de
   `polygon-amoy.drpc.org` acepta a lo sumo **100 bloques** por pedido (200 ya los rechaza con HTTP
@@ -255,7 +263,8 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
   chain serían ~260. Con donaciones corta antes.
 - **El feed de Amoy es ETH/USD, y en Amoy se manda POL**: no hay feed POL/USD en Amoy (el
   directorio oficial no lo lista), así que el `Fund` de Amoy valúa `msg.value` (POL) con el precio
-  del ETH y el piso de `MINIMUM_USD = 0.5` queda ~10.000× por debajo de lo que dice. No es un bug
+  del ETH y el piso de `MINIMUM_USD = 0.5` queda ~25.000× por debajo de lo que dice (medido con
+  POL ≈ $0,10). No es un bug
   del contrato —`Fund` es agnóstico al feed: lo recibe por constructor, lee `decimals()` y multiplica
   por `msg.value`— y **no se cambia el contrato ni el copy de la UI**: es una limitación de la demo
   en testnet. Lo que importa es que el feed valué la moneda que se envía.
