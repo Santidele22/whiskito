@@ -27,15 +27,15 @@ de lo que hay hoy y lo que falta.
 | **RedeemShop** | contrato propio | canjea el token por premios | 🔲 futuro |
 | **BadgeNFT** | ERC721 | coleccionables, por canje o por hito | 🔲 futuro |
 | **Factory** | contrato propio | un `Fund` por creador | 🔲 futuro — hoy hay **un contrato compartido** |
-| **Deploy en Polygon Amoy** | — | red pública de pruebas donde se publica la app | ✅ `Fund` desplegado en `0xc92b…3fEF8` (bloque 48371056) por `src/script/deploy-amoy.sol`, declarado en `src/js/config.js` (§6.1) |
+| **Deploy en Polygon Amoy** | — | red pública de pruebas donde se publica la app | ⚠️ el `Fund` desplegado (`0xc92b…3fEF8`, bloque 48371056) **todavía usa el feed ETH/USD**: el redeploy del `PolUsdAdapter` + `Fund` nuevos está **pendiente** (§6.1) |
 | **Publicación en Vercel** | — | publicar el `dist/` del build | ✅ **https://whiskito.vercel.app** — proyecto `whiskito`, conectado al repo: `main` despliega solo (§6.1) |
 
 ## 1. Resumen
 
-Un visitante entra a la página de un creador, conecta su wallet y dona ETH. El contrato valida que
-la donación equivalga a **al menos 0.5 USD** usando el precio ETH/USD del oráculo, la acredita al
-saldo de **ese** creador y emite un evento con el detalle. El creador, desde su propia wallet,
-retira lo acumulado a su favor.
+Un visitante entra a la página de un creador, conecta su wallet y dona la moneda nativa de la red
+(ETH en anvil, POL en Amoy). El contrato valida que la donación equivalga a **al menos 0,01 USD**
+con el precio del oráculo, la acredita al saldo de **ese** creador y emite un evento con el
+detalle. El creador, desde su propia wallet, retira lo acumulado a su favor.
 
 Todo lo demás del plan (recompensar al donante con un token, canjearlo por premios, mintear
 insignias) es roadmap: ver §8.
@@ -45,14 +45,17 @@ insignias) es roadmap: ver §8.
 ```
 donante ──fund(profesional)──▶ Fund ──▶ balances[profesional] ──withdraw()──▶ creador
                                  │
-                                 └── getConversionRate() ──▶ AggregatorV3Interface (ETH/USD)
+                                 └── getConversionRate() ──▶ AggregatorV3Interface
+                                                              (mock ETH/USD en anvil;
+                                                               PolUsdAdapter POL/USD en Amoy)
 ```
 
 | pieza | dónde | qué hace |
 |---|---|---|
 | contrato `Fund` | `src/script/fund.sol` | donaciones, validación en USD, saldos por beneficiario, retiros |
 | script de deploy local | `src/script/deploy.sol` | despliega un `MockV3Aggregator(8, 2000e8)` y el `Fund` (sólo local) |
-| script de deploy en Amoy | `src/script/deploy-amoy.sol` | despliega **sólo** el `Fund` con el feed real ETH/USD de Amoy; el oráculo ya existe en la red (§6.1) |
+| adaptador POL/USD | `src/script/pol-usd-adapter.sol` | `AggregatorV3Interface` que **deriva** POL/USD = LINK/USD ÷ LINK/MATIC (§3.2) |
+| script de deploy en Amoy | `src/script/deploy-amoy.sol` | despliega el `PolUsdAdapter` (POL/USD derivado) y el `Fund` apuntándole (§6.1) |
 | módulos de la app | `src/js/` | config, clientes, lecturas/escrituras, roles, formato, iconos, modo demo y su ledger |
 | islas (componentes) | `src/components/` | 11 web components que se pintan solos y avisan por eventos |
 | verificación | `.refactor-baseline/` | harness e2e en navegador real, sondas y anclas congeladas |
@@ -63,7 +66,8 @@ donante ──fund(profesional)──▶ Fund ──▶ balances[profesional] �
 
 - Recibir ETH por una función `payable`: `fund(address professional)`.
 - Rechazar el envío vacío (`ZeroAmount`) y la dirección cero como beneficiario (`ProfessionalNotPass`).
-- Validar que el monto equivalga a **≥ 0.5 USD** con el precio actual de ETH/USD (`MINIMUM_USD = 50 * 1e16`).
+- Validar que el monto equivalga a **≥ 0,01 USD** con el precio que devuelve el oráculo
+  (`MINIMUM_USD = 1 * 1e16`). El piso bajó desde 0,5 USD por la valuación real de POL (§3.2).
 - Registrar quién donó y cuánto (`mapping(address => uint256) donation`, interno) y **acumular el
   saldo de cada beneficiario** (`mapping(address => uint256) balances`, público).
 - Guardar el historial consultable por índice (`getDonations(uint256)` sobre el array `donations`).
@@ -76,25 +80,41 @@ opina sobre quién es un creador legítimo: cualquier dirección puede recibir.
 
 ### 3.2 Integración con Chainlink Price Feeds
 
-Se usa `AggregatorV3Interface` para leer ETH/USD on-chain.
+Se usa `AggregatorV3Interface` para leer el precio on-chain. **El contrato es agnóstico al feed**:
+lo recibe por constructor, le pregunta `decimals()` y multiplica por `msg.value`; lo único que
+importa es que el feed valué **la moneda que se envía**.
 
 - **De dónde sale la dirección del feed:** de la documentación oficial de Chainlink para ese par y
   esa red (`docs.chain.link/data-feeds/price-feeds/addresses`), **nunca de memoria**. En el deploy
   local no se usa un feed real: `deploy.sol` despliega un `MockV3Aggregator` propio con respuesta
-  `2000e8` (2000 USD, 8 decimales) y es esa dirección la que recibe el constructor. En Amoy se usa
-  el feed **real** del directorio oficial, `0xF0d50568e3A7e8259E16663972b11910F89BD8e7`
-  (`description()` = `"ETH / USD"`, `decimals()` = 8, `latestRoundData()` fresco al fijarlo).
-- **Los decimales no se asumen:** `priceFeedDecimals` se lee del feed en el constructor.
-- **El contrato es agnóstico al feed:** lo recibe por constructor, le pregunta `decimals()` y
-  multiplica por `msg.value`. Lo único que importa es que el feed valué **la moneda que se envía**.
-  En Amoy la moneda nativa es **POL**, y ahí **no hay feed POL/USD** (el directorio oficial lista 17
-  feeds para Amoy: BTC, ETH, SOL, USDT, USDC, DAI, EUR, LINK, LINK/MATIC, SAND, tres de volatilidad
-  realizada y dos de Proof of Reserve; ninguno es POL). El `Fund` de Amoy queda valuado **con el
-  precio del ETH**: el "≈ $X USD" de la app y el piso de `MINIMUM_USD = 0.5 USD` miden ETH, no POL,
-  así que valen ~25.000× lo que el POL enviado realmente vale (medido el 2026-09-23, con POL ≈ $0,10:
-  el piso son **0,000187 POL**, o sea ~$0,00002 reales) y en la práctica **cualquier polvo pasa el
-  mínimo**. Es una limitación de la demo en testnet, no un bug del contrato, y el copy del
-  producto dice "ETH" a propósito.
+  `2000e8` (2000 USD, 8 decimales) y es esa dirección la que recibe el constructor.
+- **En Amoy no hay feed POL/USD publicado** (el directorio oficial no lo lista), pero sí las dos
+  patas que lo componen. `MATIC` y `POL` son el **mismo activo** (Polygon renombró MATIC a POL; los
+  feeds conservan el nombre viejo), así que el `Fund` de Amoy recibe un **`PolUsdAdapter`**
+  (`src/script/pol-usd-adapter.sol`) que lo deriva:
+
+  | pata | proxy en Amoy | `decimals()` | heartbeat |
+  |---|---|---|---|
+  | `LINK / USD` | `0xc2e2848e28B9fE430Ab44F55a8437a33802a219C` | 8 | 120 s |
+  | `LINK / MATIC` | `0x408D97c89c141e60872C0835e18Dd1E670CD8781` | 18 | 3600 s |
+
+  `POL/USD = (LINK/USD) ÷ (LINK/MATIC)`. El adaptador lee los decimales de cada pata en el
+  constructor (nunca los asume), devuelve el resultado en **8 decimales** —la convención de los
+  feeds de USD, para ser intercambiable con cualquier otro aggregator—, toma `updatedAt` como el
+  **mínimo** de las dos patas (el compuesto es tan fresco como su pata más vieja) y revierte si
+  alguna supera `maxAge` (**7200 s** = 2× el heartbeat más lento), si su precio es ≤ 0 o si su
+  `updatedAt` es 0 o futuro. `getRoundData()` revierte: un precio compuesto no tiene rondas propias
+  que componer. **`Fund` no cambió su interfaz**: entra por constructor donde antes iba el feed
+  ETH/USD, porque el adaptador implementa `AggregatorV3Interface`.
+- **El método está validado contra mainnet:** el feed que **sí** publica el precio en Polygon
+  mainnet, `MATIC / USD` (`0xAB594600376Ec9fD91F8e885dADF0CE036862dE0`, heartbeat 27 s), marcaba
+  **$0,10032** mientras la derivación daba **$0,10055**: **0,23 % de diferencia**.
+- **El piso bajó a 0,01 USD por esta valuación**: con el precio real de POL (≈ $0,10), un mínimo de
+  0,5 USD serían **~5 POL por donación**, y el faucet de Amoy da 0,5–1 POL: la demo quedaría
+  inusable. Con `MINIMUM_USD = 1 * 1e16` el mínimo es ~0,1 POL.
+- **Pendiente**: el `Fund` que está hoy en la chain (y el `priceFeed` de `config.js`) siguen siendo
+  el feed ETH/USD `0xF0d50568e3A7e8259E16663972b11910F89BD8e7` (`description()` = `"ETH / USD"`,
+  `decimals()` = 8): el redeploy del adaptador + `Fund` nuevos está pendiente (§6.1).
 
 Validaciones sobre el precio recibido (no se lee y se confía):
 
@@ -106,15 +126,16 @@ Validaciones sobre el precio recibido (no se lee y se confía):
 | `answeredInRound >= roundId` — que la ronda se haya completado | — | 🔲 **falta** |
 
 > La cuarta es la que el plan daba por obligatoria y hoy no está. Se puede agregar sin cambiar la
-> interfaz; queda anotada como endurecimiento pendiente.
+> interfaz; queda anotada como endurecimiento pendiente. El adaptador valida el precio y la frescura
+> en **cada pata** (con `maxAge` en vez de las 3 h); `answeredInRound` de las patas tampoco se mira.
 
 ### 3.3 Conversión de unidades
 
 `msg.value` llega en wei (18 decimales). El feed devuelve el precio con los decimales que diga
-`priceFeed.decimals()` (8 tanto en el mock local como en el feed real de Amoy, pero nunca asumido).
-`getConversionRate(ethAmount)` calcula
+`priceFeed.decimals()` (8 en el mock local y también en el `PolUsdAdapter` de Amoy, pero nunca
+asumido). `getConversionRate(ethAmount)` calcula
 `scaleFactor = 10 ** (18 - decimals)` y escala **todo a 18 decimales** antes de comparar contra el
-piso de 0.5 USD, para no mezclar magnitudes.
+piso de 0,01 USD, para no mezclar magnitudes.
 
 ### 3.4 Errores personalizados
 
@@ -125,7 +146,7 @@ gas (no hay strings en el bytecode) y el error viaja decodificado a la UI.
 |---|---|
 | `InvalidPrice()` | el feed devolvió un precio ≤ 0 |
 | `StalePrice()` | `updatedAt` en 0, en el futuro, o más viejo que 3 h |
-| `InsufficientAmount()` | la donación no llega a 0.5 USD |
+| `InsufficientAmount()` | la donación no llega a 0,01 USD |
 | `ZeroAmount()` | `msg.value == 0`, o retiro por 0 |
 | `ProfessionalNotPass()` | beneficiario `address(0)` |
 | `DonationIndexOutOfBounds()` | índice fuera del array de donaciones |
@@ -307,10 +328,15 @@ landing, nadie en el link).
   link nunca se relaja: esa página cobra de verdad, así que el dueño está bloqueado siempre.
 - **"Mi Panel"** es la isla `whiskito-dashboard`: el botón del navbar (visible sólo con la wallet
   conectada) abre un modal con la **tabla de todas las donaciones recibidas** por esa cuenta —
-  cuándo, quién, ETH y el equivalente en USD que grabó el evento—, leídas de la chain con
-  `readDonationHistory()` (hasta 200, más nuevas primero). Si la lectura falla, el modal lo dice
+  cuándo, quién, el monto en POL y el equivalente en USD que grabó el evento—, leídas de la chain
+  con `readDonationHistory()` (hasta 200, más nuevas primero). Si la lectura falla, el modal lo dice
   en vez de mostrar una tabla vacía. La sección `#panel` de la landing queda como **resumen y
   decoración** (saldo, últimas rondas y el botón de retirar).
+- **Los montos se etiquetan en POL** en la tarjeta de donación, el panel y el dashboard ("Monto en
+  POL", la unidad del balance, la columna de la tabla y el resumen). Los identificadores internos
+  (`amountEth`, `balanceEth`, `data-field="eth"`) **siguen igual**: son la API entre islas y harness.
+  Las secciones **estáticas** (hero, trust, footer, cómo funciona) todavía dicen ETH y anuncian
+  "Mínimo: 0,5 USD": se resuelven aparte (§8).
 
 ### 5.5 La página que se comparte (`/u/0x…`)
 
@@ -421,8 +447,10 @@ nativa **POL**.
 key. El `.env` lleva `AMOY_RPC_URL`, que es lo que resuelve `--rpc-url amoy` vía `[rpc_endpoints]`
 de `foundry.toml`.)
 
-El script `src/script/deploy-amoy.sol` despliega **sólo** el `Fund`: el oráculo ya existe en la red
-(es el feed real ETH/USD, §3.2). El mock es cosa del deploy local.
+El script `src/script/deploy-amoy.sol` despliega el **`PolUsdAdapter`** (el POL/USD derivado de las
+dos patas reales, §3.2) **y** el `Fund` apuntándole. El mock es cosa del deploy local. El código ya
+está listo, pero **el redeploy está pendiente** (lo corre el usuario): el `Fund` que está hoy en la
+chain todavía usa el feed ETH/USD.
 
 ```bash
 # 1. una sola vez: keystore de Foundry para firmar el deploy sin poner la clave
@@ -436,8 +464,9 @@ bun run deploy:amoy -- --with-gas-price 35gwei --priority-gas-price 30gwei
 # (los DOS flags de gas son por la trampa de abajo: sin ellos Foundry manda maxFee 127 gwei
 #  y prioridad 1 gwei, y con una cuenta de 0,1 POL el nodo rechaza la transacción)
 
-# 3. el script imprime la address del Fund. Se pega en src/js/config.js → NETWORKS[80002].fund
-#    (y el bloque del deploy, que también imprime el run, en NETWORKS[80002].deployBlock)
+# 3. el script imprime DOS addresses: la del adaptador y la del Fund. Se pegan en
+#    src/js/config.js → NETWORKS[80002]: el Fund en `fund` y el adaptador en `priceFeed`
+#    (y el bloque del deploy, que también imprime el run, en `deployBlock`)
 
 # 4. ¿config.js coincide con el deploy?
 node .refactor-baseline/check-config.mjs
@@ -485,8 +514,9 @@ node .refactor-baseline/check-config.mjs
      De ahí `--priority-gas-price 30gwei`, que es lo que pagaban las transacciones que sí entraron.
   La cuenta necesita POL de testnet; el faucet de Polygon está en
   [docs.polygon.technology/tools/gas/matic-faucet](https://docs.polygon.technology/tools/gas/matic-faucet).
-- **Limitación del oráculo en Amoy**: el feed disponible es ETH/USD y no hay POL/USD, así que el
-  mínimo en USD y el "≈ $X" quedan valuados en ETH (§3.2). El contrato no se toca por esto.
+- **Valuación en Amoy**: no hay feed POL/USD publicado, así que se **deriva** con `PolUsdAdapter`
+  (§3.2). Mientras el redeploy no se haga, el `Fund` de la chain sigue valuando POL con el precio
+  del ETH y el `priceFeed` de `config.js` sigue siendo el feed ETH/USD.
 
 **Publicación del frontend**
 
@@ -549,8 +579,12 @@ no debe existir, fallan **6 en el harness**; y devolviendo el modo demo al link 
 aviso de la tarjeta siempre), fallan **7 en la sonda**. Sin esos controles, "no firmó", "no dice
 demo" o "firma de verdad" no probarían nada.
 
-`test/` está vacío: `forge test` pasa sin correr nada. La verificación real de este proyecto es el
-harness de navegador, no una suite de Solidity.
+`test/PolUsdAdapter.t.sol` tiene **18 tests** de forge: la matemática de la derivación, la frescura
+de cada pata con `vm.warp`, precios 0 y negativos, decimales mixtos, `updatedAt` = mínimo de las
+dos, `getRoundData` que revierte, y del `Fund` el piso (`MINIMUM_USD() == 1e16`, donar justo en el
+piso pasa y por debajo revierte `InsufficientAmount()`). `forge test` los corre de verdad: antes
+`test/` estaba vacío y pasaba sin ejecutar nada. La puerta de aceptación del proyecto sigue siendo
+el harness de navegador, no la suite de Solidity.
 
 ## 8. Roadmap
 
@@ -571,11 +605,17 @@ vive en <https://whiskito.vercel.app> contra Amoy y `main` despliega solo.
    `Fund`.
 4. **Factory** — un `Fund` por creador, para aislar fondos entre creadores, aceptando el costo de
    gas de cada deploy. La identidad y la URL por creador ya funcionan hoy sin Factory.
-5. **Verificar el `Fund` en Polygonscan** — el contrato de Amoy está **sin verificar**: falta
-   `ETHERSCAN_API_KEY` en el `.env` (§6.1).
-6. **Tests de forge** — `test/` sigue vacío, así que `forge test` pasa sin correr nada (§7). Hoy la
-   verificación real es el harness de navegador.
-7. **Deploy en Sepolia** — otra red (Ethereum, `chainId 11155111`), no la publicada: con el
+5. **Verificar en Polygonscan** — el `Fund` de Amoy está **sin verificar**: falta
+   `ETHERSCAN_API_KEY` en el `.env` (§6.1). Con el redeploy hay que verificar también el
+   `PolUsdAdapter`.
+6. **Redeploy en Amoy del `PolUsdAdapter` y del `Fund`** — el código ya está (§3.2), pero la chain
+   todavía tiene el `Fund` valuado con ETH/USD. Lo corre el usuario con `bun run deploy:amoy`
+   (§6.1), pega las dos direcciones en `config.js` y confirma con `check-config`.
+7. **Regenerar el ancla estática del rediseño** — las secciones **estáticas** (hero, trust, footer,
+   cómo funciona) todavía dicen ETH y anuncian "Mínimo: 0,5 USD", mientras la tarjeta, el panel y el
+   dashboard ya etiquetan los montos en POL (§5.4). Se regenera con el control negativo que exige
+   §5 de `AGENTS.md`.
+8. **Deploy en Sepolia** — otra red (Ethereum, `chainId 11155111`), no la publicada: con el
    aggregator **real** de Chainlink (no el mock local) y descomentando y completando la entrada de
    `NETWORKS` en `src/js/config.js` con la dirección que salga de la documentación de Chainlink para
    esa red.
@@ -601,7 +641,8 @@ sacar el error sin uso `ProfessionalIndexOutOfBounds`, y acotar el rango de bloq
 src/
   script/fund.sol          el contrato
   script/deploy.sol        mock del oráculo + deploy local
-  script/deploy-amoy.sol   deploy en Polygon Amoy (sólo el Fund; el feed es real)
+  script/pol-usd-adapter.sol  adaptador POL/USD derivado (LINK/USD ÷ LINK/MATIC)
+  script/deploy-amoy.sol   deploy en Polygon Amoy (adaptador POL/USD + Fund)
   fund.abi.json            ABI generado por forge
   index.html               la landing (importmap: lucide → node_modules)
   styles.css               hoja global (tokens, reset, secciones en light DOM)
@@ -617,7 +658,7 @@ src/
     constants.js format.js icons.js
   components/              11 web components ("islas") + base-element.js
                            (whiskito-dashboard es el modal "Mi Panel")
-test/                      vacío
+test/                      PolUsdAdapter.t.sol (18 tests de forge)
 .refactor-baseline/        andamiaje de verificación (descartable)
 .github/workflows/test.yml CI: dos jobs (`check` + `e2e`, ver su README)
 ```

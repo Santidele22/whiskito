@@ -540,7 +540,7 @@ export class WhiskitoPanel extends WhiskitoElement {
           <p class="r-balance-label">Balance disponible</p>
           <p class="receipt-balance">
             <span id="balanceDisplay" data-text="balanceEth">0.0842</span>
-            <span class="balance-unit">ETH</span>
+            <span class="balance-unit">POL</span>
           </p>
           <p class="r-usd" id="balanceUsd" data-text="balanceUsd">≈ $269.44 USD</p>
 
@@ -577,7 +577,7 @@ export class WhiskitoPanel extends WhiskitoElement {
               data-attr="hidden:withdrawPartHidden"
             >
               <label class="withdraw-part-label" for="withdrawAmount"
-                >Monto a retirar (ETH)</label
+                >Monto a retirar (POL)</label
               >
               <input
                 id="withdrawAmount"
@@ -627,7 +627,7 @@ export class WhiskitoPanel extends WhiskitoElement {
             <div class="r-item">
               <code data-field="address"></code>
               <span class="amt"
-                >+<span data-field="eth"></span> ETH
+                >+<span data-field="eth"></span> POL
                 <small>≈ $<span data-field="usd"></span></small></span
               >
               <span class="when" data-field="when"></span>

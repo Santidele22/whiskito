@@ -1,6 +1,6 @@
 # CI (`.github/workflows/test.yml`) — dos jobs. El contexto del proyecto está en `AGENTS.md`.
 - **`check`** — sin nada vivo: `forge fmt --check`, `forge build --sizes`, `forge test -vvv`
-  (`test/` está vacío, hoy pasa trivialmente), `node --check` sobre `src/js/*.js` y
+  (18 tests en `test/PolUsdAdapter.t.sol`: la derivación POL/USD y el piso de `Fund`), `node --check` sobre `src/js/*.js` y
   `src/components/*.js`, `resolve-imports.mjs`, `check-config.mjs` contra el `broadcast/` de Amoy
   versionado y `bun run build` (el bundle que publica Vercel).
 - **`e2e`** — la puerta de verdad: `run-harness.py` y después `run-donate-probe.py`, en Firefox

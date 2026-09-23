@@ -210,14 +210,20 @@
           check("B12 sólo un chip activo", chips.filter((c) => c.classList.contains("is-active")).length === 1);
 
           chips.find((c) => c.dataset.usd === "0.5").click();
-          eq("B13 chip de 0.5 USD → mínimo exacto", card.amount, ethDe(0.5));
+          // El piso bajó a 0.01 USD: este chip sigue siendo un monto válido (el
+          // monto convertido es lo que se compara), ya no el mínimo exacto.
+          eq("B13 chip de 0.5 USD → monto convertido", card.amount, ethDe(0.5));
           check("B14 con el mínimo no avisa", hint.hidden === true && fund.disabled === false);
 
-          typeInto(input, "0.00001");
+          // Por debajo del piso NUEVO (0.01 USD): con el oráculo en 2000 USD el
+          // mínimo en la unidad nativa es ethDe(0.01) = 0.000005, así que el
+          // valor tipeado tiene que ser menor que eso (0.00001 ya NO está por
+          // debajo: son 0.02 USD y la aserción dejaría de probar lo que dice).
+          typeInto(input, "0.000001");
           check("B15 bajo el mínimo deshabilita", fund.disabled === true);
           check("B16 bajo el mínimo muestra el hint", hint.hidden === false);
           check("B17 el hint explica el mínimo",
-            NORM(hint.textContent) === `El mínimo es 0.50 USD ≈ ${ethDe(0.5)} ETH`, NORM(hint.textContent));
+            NORM(hint.textContent) === `El mínimo es 0.01 USD ≈ ${ethDe(0.01)} POL`, NORM(hint.textContent));
 
           let amountEvent = null;
           doc.addEventListener("whiskito:amount-change", (e) => { amountEvent = e.detail; });
@@ -616,7 +622,7 @@
           check("H1l y llama a withdrawAll()", firmas[0]?.params?.[0]?.data === "0x853828b6",
             `data=${firmas[0]?.params?.[0]?.data}`);
           check("H1m2 y el saldo de la chain volvió a cero", panel.balanceEth === "0",
-            `balance=${panel.balanceEth} ETH`);
+            `balance=${panel.balanceEth} POL`);
           check("H1m la UI reporta el retiro", panel.withdrawStatus === "success",
             `status=${panel.withdrawStatus} msg="${panel.withdrawMessage}" · métodos=${[...new Set(pedidos.map((p) => p.method))].join(",")} · recibos=${pedidos.filter((p) => p.method === "eth_getTransactionReceipt").length}`);
 
@@ -1424,7 +1430,7 @@
           check("N14 y cuándo, en tiempo relativo", /hace/.test(textoFila), textoFila);
           check("N14b el resumen suma esa ronda",
             NORM(dashRoot3.querySelector("#dashSummary")?.textContent).includes("1 ronda") &&
-              NORM(dashRoot3.querySelector("#dashSummary")?.textContent).includes("0.002 ETH"),
+              NORM(dashRoot3.querySelector("#dashSummary")?.textContent).includes("0.002 POL"),
             `resumen=${dashRoot3.querySelector("#dashSummary")?.textContent}`);
           check("N14c el panel dice de qué cuenta son las donaciones",
             NORM(dashRoot3.querySelector("#dashAddress")?.textContent ?? "").toLowerCase() ===

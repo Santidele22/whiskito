@@ -2,8 +2,8 @@
 <html lang="es"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Whiskito — Invitá o recibí donaciones en ETH, directo entre wallets. Sin registro, sin comisiones, sin intermediarios. Como Cafecito, pero en blockchain.">
-    <title>Whiskito — Invitame un whiskito en ETH</title>
+    <meta name="description" content="Whiskito — Invitá o recibí donaciones en POL, directo entre wallets. Sin registro, sin comisiones, sin intermediarios. Como Cafecito, pero en blockchain.">
+    <title>Whiskito — Invitame un whiskito en POL</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
@@ -59,7 +59,7 @@
           </h1>
 
           <p class="hero-subtitle">
-            Una pequeña donación en <em>ETH</em> que viaja directo de tu
+            Una pequeña donación en <em>POL</em> que viaja directo de tu
             <span class="tt" tabindex="0" data-tip="Wallet = tu cuenta de cripto. Una app gratuita (como MetaMask) que guarda tus fondos y te identifica. No necesita email ni contraseña.">wallet</span>
             a la de quien te gusta apoyar. Servido neat:
             <em>sin nadie en el medio</em>. Sin registro, sin comisiones, sin
@@ -93,7 +93,7 @@
                 </div>
               </div>
               <div class="mc-amount">
-                <strong>0.0015 ETH</strong>
+                <strong>50 POL</strong>
                 <span>≈ $5.00 USD</span>
               </div>
             </div>
@@ -115,7 +115,7 @@
         <div class="stat"><b>0%</b><span>comisión de plataforma</span></div>
         <div class="stat"><b>100%</b><span>público y verificable</span></div>
         <div class="stat"><b>~12s</b><span>en confirmarse</span></div>
-        <div class="stat"><b>0.5 USD</b><span>mínimo por sorbo</span></div>
+        <div class="stat"><b>0.01 USD</b><span>mínimo por sorbo</span></div>
       </div>
     </section></whiskito-hero>
     <whiskito-how-it-works><!-- ============================================================
@@ -205,8 +205,8 @@
                 <h4>Elegí cuánto invitás</h4>
                 <p>
                   Conectá tu wallet, poné el monto en
-                  <span class="tt" tabindex="0" data-tip="ETH = la moneda de Ethereum, la red blockchain más usada del mundo. 1 ETH ≈ unos pocos miles de dólares, pero podés donar fracciones mínimas.">ETH</span>
-                  (la moneda de Ethereum) y mirá el equivalente en dólares al
+                  <span class="tt" tabindex="0" data-tip="POL = la moneda nativa de Polygon, la red donde corre la app. 1 POL ≈ unos centavos de dólar, pero podés donar fracciones mínimas.">POL</span>
+                  (la moneda nativa de Polygon) y mirá el equivalente en dólares al
                   lado: sabés exactamente cuánto estás invitando
                   <strong>antes</strong> de confirmar.
                 </p>
@@ -228,7 +228,7 @@
           </ul>
 
           <!-- Demo card funcional-ready (IDs intactos para tu JS) -->
-          <whiskito-donate-card eth-price="2000"></whiskito-donate-card>
+          <whiskito-donate-card demo="" eth-price="2000"></whiskito-donate-card>
         </div>
       </div>
     </section></whiskito-how-it-works>
@@ -262,9 +262,9 @@
           <li>
             <span class="trust-num">02</span>
             <div>
-              <h4>Mínimo: 0.5 USD por donación</h4>
+              <h4>Mínimo: 0.01 USD por donación</h4>
               <p>
-                Toda ronda tiene un piso equivalente a medio dólar. Así se evitan
+                Toda ronda tiene un piso equivalente a un centavo de dólar. Así se evitan
                 donaciones vacías y errores de tipeo del estilo "quería poner 5 y
                 puse 0.05".
               </p>
@@ -275,7 +275,7 @@
             <div>
               <h4>Precio real, nunca viejo</h4>
               <p>
-                La conversión ETH → dólares no la decidimos nosotros: viene de un
+                La conversión POL → dólares no la decidimos nosotros: viene de un
                 <span class="tt" tabindex="0" data-tip="Oráculo = un servicio confiable que publica datos del mundo real (como precios) dentro de la blockchain, y todos pueden verificar de dónde salen.">oráculo</span>
                 (una fuente de precios confiable y verificada en tiempo real). Si
                 el dato está desactualizado, la operación simplemente no se hace.
@@ -405,7 +405,10 @@
     </footer></whiskito-footer>
 
     <whiskito-radio></whiskito-radio>
-    <whiskito-share-card share-base="https://whiskito.app" address=""></whiskito-share-card>
+    <whiskito-share-card share-base="http://127.0.0.1:8899" address=""></whiskito-share-card>
+
+    <!-- Mi Panel -->
+    <whiskito-dashboard></whiskito-dashboard>
 
     <!-- script -->
   

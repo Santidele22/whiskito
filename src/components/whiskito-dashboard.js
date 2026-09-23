@@ -57,7 +57,7 @@ export function formatUsd(value) {
 }
 
 /**
- * Resumen calculado con las filas: `12 rondas · 0.0842 ETH · ≈ $269.44 USD`.
+ * Resumen calculado con las filas: `12 rondas · 0.0842 POL · ≈ $269.44 USD`.
  * Sin filas devuelve `""` (no hay nada que resumir). Función pura.
  *
  * @param {Array<{amountEth: string|number, usd: string|number}>} donations
@@ -74,7 +74,7 @@ export function buildSummary(donations) {
     0
   );
   const rondas = donations.length === 1 ? "1 ronda" : `${donations.length} rondas`;
-  return `${rondas} · ${formatEth(totalEth)} ETH · ≈ $${formatUsd(totalUsd)} USD`;
+  return `${rondas} · ${formatEth(totalEth)} POL · ≈ $${formatUsd(totalUsd)} USD`;
 }
 
 export class WhiskitoDashboard extends WhiskitoElement {
@@ -587,7 +587,7 @@ export class WhiskitoDashboard extends WhiskitoElement {
               <tr>
                 <th scope="col">Cuándo</th>
                 <th scope="col">Quién</th>
-                <th scope="col" class="dash-num">ETH</th>
+                <th scope="col" class="dash-num">POL</th>
                 <th scope="col" class="dash-num">USD</th>
               </tr>
             </thead>
@@ -603,7 +603,7 @@ export class WhiskitoDashboard extends WhiskitoElement {
           <p class="dash-balance-label">Balance disponible</p>
           <p class="dash-balance">
             <span id="dashBalance" data-text="balanceEth"></span>
-            <span class="dash-balance-unit">ETH</span>
+            <span class="dash-balance-unit">POL</span>
           </p>
           <p class="dash-balance-usd" data-text="balanceUsdText"></p>
 
@@ -633,7 +633,7 @@ export class WhiskitoDashboard extends WhiskitoElement {
             data-attr="hidden:withdrawPartHidden"
           >
             <label class="dash-withdraw-label" for="withdrawAmount"
-              >Monto a retirar (ETH)</label
+              >Monto a retirar (POL)</label
             >
             <input
               id="withdrawAmount"
@@ -907,7 +907,7 @@ export class WhiskitoDashboard extends WhiskitoElement {
       // unidad, y el equivalente en dólares sólo si vino.
       if (when) when.textContent = donation.when ?? "";
       if (donor) donor.textContent = donation.donorShort ?? "";
-      if (amount) amount.textContent = `+${donation.amountEth ?? ""} ETH`;
+      if (amount) amount.textContent = `+${donation.amountEth ?? ""} POL`;
       if (usd) {
         usd.textContent =
           donation.usd === undefined || donation.usd === null || donation.usd === ""

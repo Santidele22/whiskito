@@ -482,7 +482,7 @@ export class WhiskitoDonateCard extends WhiskitoElement {
             </div>
 
             <div class="input-group">
-              <label for="ehtAmount" class="input-label">Monto en ETH</label>
+              <label for="ehtAmount" class="input-label">Monto en POL</label>
               <div class="input-wrapper">
                 <span class="input-currency">Ξ</span>
                 <input
@@ -531,7 +531,7 @@ export class WhiskitoDonateCard extends WhiskitoElement {
             </div>
 
             <p class="card-footnote">
-              <i data-lucide="lock"></i> Mínimo: 0.5 USD, calculado con el precio en tiempo real de un
+              <i data-lucide="lock"></i> Mínimo: 0.01 USD, calculado con el precio en tiempo real de un
               <span
                 class="tt"
                 tabindex="0"
@@ -564,7 +564,7 @@ export class WhiskitoDonateCard extends WhiskitoElement {
   }
 
   get minUsd() {
-    return Number(this.getAttribute("min-usd") ?? 0.5);
+    return Number(this.getAttribute("min-usd") ?? 0.01);
   }
   set minUsd(v) {
     this.setAttribute("min-usd", String(v));
@@ -680,7 +680,7 @@ export class WhiskitoDonateCard extends WhiskitoElement {
       hintText: blockedByRole
         ? SELF_DONATION_MESSAGE
         : hasPrice
-          ? `El mínimo es ${minUsd.toFixed(2)} USD ≈ ${minEth} ETH`
+          ? `El mínimo es ${minUsd.toFixed(2)} USD ≈ ${minEth} POL`
           : "",
       hintHidden: !(blockedByRole || belowMin),
       canFund,

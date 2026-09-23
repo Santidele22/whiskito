@@ -42,8 +42,8 @@ jobs:
         run: forge build --sizes
 
       - name: Run Forge tests
-        # `test/` está vacío, así que hoy esto pasa trivialmente. Se deja porque es
-        # la puerta del contrato: el día que haya tests de forge, ya están corriendo.
+        # `test/PolUsdAdapter.t.sol`: 18 tests de forge (derivación POL/USD y piso de
+        # `Fund`). Ya no pasa trivialmente: es la puerta del contrato.
         run: forge test -vvv
 
       # ── Frontend: lo rápido, sin navegador (ver AGENTS.md §3) ──────────────

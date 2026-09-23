@@ -6,7 +6,10 @@ contract Fund {
     AggregatorV3Interface internal immutable priceFeed;
     uint8 internal immutable priceFeedDecimals;
 
-    uint256 public constant MINIMUM_USD = 50 * 1e16; // 0.5 USD con 18 decimales
+    // 0.01 USD con 18 decimales. Antes eran 0.5 USD: con el precio real de POL (≈ $0,10)
+    // ese piso equivalía a ~5 POL, y el faucet de Amoy da 0,5–1 POL, así que la demo
+    // quedaba inusable. Con el piso nuevo, el mínimo es ~0,1 POL.
+    uint256 public constant MINIMUM_USD = 1 * 1e16;
     uint256 public constant STALENESS_THRESHOLD = 3 hours; // margen de tolerancia
 
     //Struct

@@ -48,7 +48,7 @@ export class WhiskitoHero extends WhiskitoElement {
           </h1>
 
           <p class="hero-subtitle">
-            Una pequeña donación en <em>ETH</em> que viaja directo de tu
+            Una pequeña donación en <em>POL</em> que viaja directo de tu
             <span
               class="tt"
               tabindex="0"
@@ -93,7 +93,7 @@ export class WhiskitoHero extends WhiskitoElement {
                 </div>
               </div>
               <div class="mc-amount">
-                <strong>0.0015 ETH</strong>
+                <strong>50 POL</strong>
                 <span>≈ $5.00 USD</span>
               </div>
             </div>
@@ -115,7 +115,7 @@ export class WhiskitoHero extends WhiskitoElement {
         <div class="stat"><b>0%</b><span>comisión de plataforma</span></div>
         <div class="stat"><b>100%</b><span>público y verificable</span></div>
         <div class="stat"><b>~12s</b><span>en confirmarse</span></div>
-        <div class="stat"><b>0.5 USD</b><span>mínimo por sorbo</span></div>
+        <div class="stat"><b>0.01 USD</b><span>mínimo por sorbo</span></div>
       </div>
     </section>
   `;

@@ -31,9 +31,9 @@ export class WhiskitoTrust extends WhiskitoElement {
           <li>
             <span class="trust-num">02</span>
             <div>
-              <h4>Mínimo: 0.5 USD por donación</h4>
+              <h4>Mínimo: 0.01 USD por donación</h4>
               <p>
-                Toda ronda tiene un piso equivalente a medio dólar. Así se evitan
+                Toda ronda tiene un piso equivalente a un centavo de dólar. Así se evitan
                 donaciones vacías y errores de tipeo del estilo "quería poner 5 y
                 puse 0.05".
               </p>
@@ -44,7 +44,7 @@ export class WhiskitoTrust extends WhiskitoElement {
             <div>
               <h4>Precio real, nunca viejo</h4>
               <p>
-                La conversión ETH → dólares no la decidimos nosotros: viene de un
+                La conversión POL → dólares no la decidimos nosotros: viene de un
                 <span
                   class="tt"
                   tabindex="0"

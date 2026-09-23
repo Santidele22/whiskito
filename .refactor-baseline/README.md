@@ -45,7 +45,7 @@ Qué comprueba (237 aserciones):
 
 - **A** — los 11 componentes montan (light DOM o shadow root); `main.js` inyecta precio y portfolio; el panel pinta las 3 filas.
 - **F** — las secciones **estáticas** (hero, cómo funciona sin la tarjeta, seguridad, preguntas, footer) siguen idénticas al original congelado (el subárbol dinámico se enmascara).
-- **B** — isla de donación: equivalente en USD, mínimo de 0.5 USD, redondeo hacia arriba de los chips, chip activo (uno solo), hint de mínimo, eventos `whiskito:amount-change` y `whiskito:fund-request`, estados de transacción (`pending`/`success`/`error`/`idle`) y comportamiento sin precio.
+- **B** — isla de donación: equivalente en USD, mínimo de 0.01 USD (el hint dice `El mínimo es 0.01 USD ≈ … POL`), redondeo hacia arriba de los chips, chip activo (uno solo), hint de mínimo, eventos `whiskito:amount-change` y `whiskito:fund-request`, estados de transacción (`pending`/`success`/`error`/`idle`) y comportamiento sin precio.
 - **C** — isla del navbar: estados `disconnected`/`connecting`/`connected`/`unsupported`, dirección acortada, `title` sólo cuando corresponde; y **desconectar**: el botón aparece sólo con la wallet conectada, el botón de conectar **no** vuelve a pedir conexión estando conectado, y al desconectar se revierte todo (navbar a `disconnected`, tarjeta de compartir bloqueada y cerrada, panel de vuelta al preview) más el botón que se esconde.
 - **D** — isla del panel: lista reactiva, estado vacío, balance.
 - **E** — integración: click en "Invitar un Whiskito" → `pending` → `success` → el panel suma la donación y actualiza el balance. Con el modo demo (el default) el mensaje dice demo y **no** promete on-chain.

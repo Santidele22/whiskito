@@ -54,16 +54,18 @@ for (const { script, chain, archivo } of corridas) {
     problemas.push(`broadcast de la red ${chain} (${script}) sin entrada en NETWORKS`);
     continue;
   }
-  for (const [clave, contrato] of [
-    ["fund", "Fund"],
-    ["priceFeed", "MockV3Aggregator"],
+  // `priceFeed` puede ser el mock local (anvil) o el adaptador POL/USD (Amoy): los dos
+  // implementan `AggregatorV3Interface` y el `Fund` los recibe igual por constructor.
+  for (const [clave, contratos] of [
+    ["fund", ["Fund"]],
+    ["priceFeed", ["MockV3Aggregator", "PolUsdAdapter"]],
   ]) {
-    const esperado = red[clave]?.toLowerCase();
-    const real = desplegados.get(contrato);
+    const real = contratos.map((n) => desplegados.get(n)).find(Boolean);
     if (!real) continue; // esta red no desplegó ese contrato
+    const esperado = red[clave]?.toLowerCase();
     if (esperado !== real) {
       problemas.push(
-        `red ${chain} · ${contrato}: config.js dice ${red[clave]} y el broadcast dice ${desplegados.get(contrato)}`,
+        `red ${chain} · ${clave}: config.js dice ${red[clave]} y el broadcast dice ${real} (${contratos.join(" o ")})`,
       );
     }
   }

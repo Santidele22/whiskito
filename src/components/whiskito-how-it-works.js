@@ -97,10 +97,10 @@ export class WhiskitoHowItWorks extends WhiskitoElement {
                   <span
                     class="tt"
                     tabindex="0"
-                    data-tip="ETH = la moneda de Ethereum, la red blockchain más usada del mundo. 1 ETH ≈ unos pocos miles de dólares, pero podés donar fracciones mínimas."
-                    >ETH</span
+                    data-tip="POL = la moneda nativa de Polygon, la red donde corre la app. 1 POL ≈ unos centavos de dólar, pero podés donar fracciones mínimas."
+                    >POL</span
                   >
-                  (la moneda de Ethereum) y mirá el equivalente en dólares al
+                  (la moneda nativa de Polygon) y mirá el equivalente en dólares al
                   lado: sabés exactamente cuánto estás invitando
                   <strong>antes</strong> de confirmar.
                 </p>
