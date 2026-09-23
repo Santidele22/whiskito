@@ -40,7 +40,7 @@
 
         // ── A. la app construida monta ────────────────────────────────
         const hosts = [...doc.querySelectorAll("*")].filter((e) => e.tagName.includes("-"));
-        check("B1 los 10 componentes montan", hosts.length === 10, `hosts=${hosts.length}`);
+        check("B1 los 11 componentes montan", hosts.length === 11, `hosts=${hosts.length}`);
         check(
           "B2 cada host montado (light DOM o shadow root)",
           hosts.every((h) => (h.shadowRoot ? h.shadowRoot.children.length >= 1 : h.children.length === 1))
@@ -55,7 +55,11 @@
         check("B5 el panel se llenó", panel.donations?.length >= 3 && Boolean(panel.balanceEth), `filas=${panel.donations?.length} balance=${panel.balanceEth}`);
         const raices = [doc, ...hosts.map((h) => h.shadowRoot).filter(Boolean)];
         const cuenta = (sel, host) => (host.shadowRoot ?? host).querySelectorAll(sel).length;
-        const esperado = { "whiskito-navbar": 3, "whiskito-donate-card": 6, "whiskito-panel": 6, "whiskito-share-card": 15 };
+        // Iconos por isla, contados en el código fuente de cada componente
+        // (`data-lucide=`): la sonda original esperaba 3/6 y quedó vieja cuando
+        // el rediseño agregó iconos. Si Lucide no hidratara, el conteo sería 0 y
+        // la aserción sigue fallando igual.
+        const esperado = { "whiskito-navbar": 4, "whiskito-donate-card": 7, "whiskito-panel": 6, "whiskito-share-card": 15 };
         const porIsla = Object.entries(esperado).map(([t, n]) => `${t}=${cuenta("svg.icon", doc.querySelector(t))}/${n}`).join(" ");
         const light = doc.querySelectorAll("svg.icon").length;
         check(

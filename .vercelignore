@@ -1,0 +1,31 @@
+# Qué NO se sube a Vercel en un deploy desde el CLI.
+#
+# El build corre allá y sólo necesita el frontend: `src/`, `package.json`, `bun.lock`
+# y `vercel.json`. Todo lo demás es andamiaje local (o directamente secreto).
+#
+# `vercel.json` NO se ignora: es la config del deploy (build y el redirect de `/u/…`).
+
+# Secretos: nunca tienen que viajar al entorno de build de un tercero.
+.env
+.env.*
+!.env.example
+
+# Dependencias y artefactos locales (los reinstala el build).
+node_modules/
+dist/
+out/
+cache/
+state.json
+error.log
+
+# Andamiaje de verificación y la cadena de Foundry: no hacen falta para el frontend.
+.refactor-baseline/
+broadcast/
+lib/
+test/
+docs/
+
+# Vínculo y caché del propio CLI de Vercel.
+.vercel/
+.vercel-cache/
+.vercel-home/

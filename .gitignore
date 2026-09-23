@@ -5,6 +5,10 @@ out/
 # Dependencias (se reinstalan con `bun install`)
 node_modules/
 
+# Vínculo local con Vercel (lo crea `vercel link`/`deploy`: es estado de la máquina,
+# no fuente del proyecto). La config del deploy sí se versiona: `vercel.json`.
+.vercel/
+
 # Bundle de producción de Vite (generado por `bun run build`)
 /dist
 

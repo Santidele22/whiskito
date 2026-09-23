@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "bun run build",
+  "installCommand": "bun install",
+  "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/u/:addr(0x[0-9a-fA-F]{40})",
+      "destination": "/donate.html?u=:addr",
+      "permanent": false
+    }
+  ]
+}
