@@ -18,6 +18,15 @@ export const NETWORKS = {
     rpc: "http://127.0.0.1:8545",
     explorer: null,
   },
+
+  11155111: {
+    name: "amoy",
+    fund: "",
+    priceFeed: "",
+    rpc: "https://polygon-amoy.drpc.org",
+    explorer: "https://sepolia.etherscan.io",
+  },
+
   // Cuando deployes en una testnet, agregá su entrada (y ahí sí usá el
   // aggregator real de Chainlink, no el mock del script local):
   // 11155111: {
