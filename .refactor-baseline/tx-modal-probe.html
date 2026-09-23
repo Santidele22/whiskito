@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>sonda del modal de transacción</title>
+    <style>
+      html, body { margin: 0; background: #0b0b0b; color: #7CFC00; font: 13px/1.45 monospace; }
+      iframe { width: 1440px; height: 900px; border: 0; position: absolute; left: -10000px; top: 0; }
+      #out { white-space: pre-wrap; padding: 10px; }
+    </style>
+  </head>
+  <body>
+    <!-- Sonda TEMPORAL: se copia a `src/` para ser del mismo origen que la
+         página de donación, y se borra después.
+
+         Usa XHR SÍNCRONO y esperas ocupadas a propósito: en Firefox headless de
+         este entorno los `setTimeout` de la página no llegan a correr (la sonda
+         se quedaría muda), pero el script inicial sí corre entero y las
+         microtareas (promesas) se drenan al soltar la pila. -->
+    <iframe id="pagina"></iframe>
+    <iframe id="otro"></iframe>
+    <pre id="out">corriendo…</pre>
+
+    <script type="module">
+      // La API de `islands.js` se prueba desde acá, que es el mismo módulo y el
+      // mismo origen: la isla que se toca es la del iframe.
+      import { hideTxModal, showTxModal } from "./js/islands.js";
+
+      const DIRECCION = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+      const OTRA_CUENTA = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8";
+      const results = [];
+      let check = (name, ok, extra = "") =>
+        results.push(`${ok ? "ok" : "FALLA"} ${name}${extra ? " <" + extra + ">" : ""}`);
+
+      const reportar = (texto) => {
+        document.getElementById("out").textContent = texto;
+        const x = new XMLHttpRequest();
+        x.open("POST", "/__report__?d=" + encodeURIComponent(texto.slice(0, 6000)), false);
+        try {
+          x.send("x");
+        } catch (error) {
+          document.title = "REPORT-FALLO " + error.message;
+        }
+      };
+
+      /** Espera ocupada hasta que `fn()` devuelva algo truthy (o se acabe el tiempo). */
+      const esperarA = (fn, ms = 5000) => {
+        const end = Date.now() + ms;
+        for (;;) {
+          let value = null;
+          try {
+            value = fn();
+          } catch (error) {
+            value = null;
+          }
+          if (value) return value;
+          if (Date.now() > end) return null;
+        }
+      };
+
+      /** Wallet EIP-1193 falsa: deja registro de lo que se le pide a la wallet. */
+      const RPC = { accounts: [], sent: [], calls: 0, chainSwitches: 0 };
+      const fakeWalletSource = (account) => `
+        window.__rpc = { accounts: [], sent: [], calls: 0, chainSwitches: 0 };
+        window.ethereum = {
+          isMetaMask: true,
+          async request({ method }) {
+            window.__rpc.calls++;
+            if (method === "eth_requestAccounts" || method === "eth_accounts") {
+              window.__rpc.accounts.push("${account}");
+              return ["${account}"];
+            }
+            if (method === "eth_chainId") return "0x7a69";
+            if (method === "wallet_switchEthereumChain") { window.__rpc.chainSwitches++; return null; }
+            if (method === "eth_sendTransaction") {
+              window.__rpc.sent.push(arguments[0]);
+              return "0x" + "ab".repeat(32);
+            }
+            if (method === "eth_call") return "0x" + "00".repeat(31) + "01";
+            if (method === "eth_estimateGas") return "0x5208";
+            if (method === "eth_blockNumber") return "0x1";
+            if (method === "eth_getTransactionReceipt")
+              return { status: "0x1", blockNumber: "0x1", transactionHash: "0x" + "ab".repeat(32) };
+            return null;
+          },
+          on() {},
+          removeListener() {},
+        };
+      `;
+
+      const frame = document.getElementById("pagina");
+
+      try {
+        // ── Arranque: la página de donación, montada ────────────────────
+        frame.src = `/u/${DIRECCION}`;
+        const card = esperarA(
+          () => frame.contentWindow?.document?.querySelector("whiskito-donate-card"),
+          15000
+        );
+        if (!card) throw new Error("la tarjeta nunca se montó en el iframe");
+        const win = frame.contentWindow;
+        const doc = win.document;
+        const cardRoot = card.shadowRoot ?? card;
+
+        // ── Islas: la tarjeta y el modal, nada más ──────────────────────
+        const hosts = [...doc.querySelectorAll("*")].filter((e) => e.tagName.includes("-"));
+        const etiquetas = hosts.map((h) => h.tagName.toLowerCase());
+        check("H0 la página trae la tarjeta y el modal (y nada más)",
+          etiquetas.includes("whiskito-donate-card") && etiquetas.includes("whiskito-tx-modal"),
+          `hosts=${etiquetas.join(",")}`);
+
+        const modal = doc.querySelector("whiskito-tx-modal");
+        const mounted = esperarA(() => (modal?.shadowRoot ? modal : null), 8000);
+        check("H1 la isla del modal está definida y montada", Boolean(mounted),
+          `defined=${Boolean(win.customElements.get("whiskito-tx-modal"))} shadow=${Boolean(modal?.shadowRoot)}`);
+        const mroot = modal.shadowRoot;
+        const overlay = mroot.querySelector("#overlay");
+        const dialog = mroot.querySelector("#dialog");
+        const closeButton = mroot.querySelector("#closeButton");
+
+        // ── A. Cerrado: no existe para el usuario, el teclado ni el lector ──
+        const rectCerrado = overlay.getBoundingClientRect();
+        const visibleCerrado = overlay.hidden === false && rectCerrado.width > 0 && rectCerrado.height > 0;
+        check("A1 al cargar el modal NO se ve",
+          overlay.hidden === true && !visibleCerrado && win.getComputedStyle(overlay).display === "none",
+          `hidden=${overlay.hidden} display=${win.getComputedStyle(overlay).display} rect=${rectCerrado.width}x${rectCerrado.height}`);
+        check("A2 cerrado tampoco hay borde del diálogo",
+          win.getComputedStyle(dialog).display === "none");
+        check("A3 cerrado no bloquea el scroll del body",
+          doc.body.style.overflow === "" || doc.body.style.overflow === "visible",
+          `overflow="${doc.body.style.overflow}"`);
+
+        // ── B. Abierto con success: se ve y muestra los textos ──────────
+        const focoAntes = cardRoot.querySelector("#ehtAmount");
+        focoAntes.focus();
+        modal.open = true;
+        modal.kind = "success";
+        modal.title = "Transacción aceptada";
+        modal.message = "Tu whiskito llegó al destino. ¡Gracias!";
+        esperarA(() => mroot.activeElement === closeButton, 2000);
+
+        const rect = overlay.getBoundingClientRect();
+        const estiloOverlay = win.getComputedStyle(overlay);
+        check("B1 con open=true el modal se ve",
+          overlay.hidden === false && estiloOverlay.display !== "none" && rect.width > 400 && rect.height > 400,
+          `display=${estiloOverlay.display} rect=${Math.round(rect.width)}x${Math.round(rect.height)} z=${estiloOverlay.zIndex}`);
+        const textoDialogo = (dialog.textContent ?? "").replace(/\s+/g, " ");
+        check("B2 muestra el título y el mensaje que se le setearon",
+          textoDialogo.includes("Transacción aceptada") && textoDialogo.includes("Tu whiskito llegó al destino"),
+          `texto="${textoDialogo.slice(0, 90)}"`);
+        check("B3 es un diálogo accesible (role/aria-modal/aria-labelledby)",
+          dialog.getAttribute("role") === "dialog" && dialog.getAttribute("aria-modal") === "true" &&
+          dialog.getAttribute("aria-labelledby") === "txTitle" && mroot.querySelector("#txTitle") !== null,
+          `role=${dialog.getAttribute("role")} modal=${dialog.getAttribute("aria-modal")} labelledby=${dialog.getAttribute("aria-labelledby")}`);
+        check("B4 abierto bloquea el scroll del body",
+          doc.body.style.overflow === "hidden", `overflow="${doc.body.style.overflow}"`);
+        check("B5 el foco va al botón de cerrar",
+          doc.activeElement === modal && mroot.activeElement === closeButton,
+          `doc.activeElement=${doc.activeElement?.tagName} shadowActive=${mroot.activeElement?.id}`);
+
+        // El sello de éxito: icono circle-check visible y color del sistema.
+        const stamp = mroot.querySelector(".tx-stamp");
+        const iconoCheck = mroot.querySelector('svg[data-lucide="circle-check"]');
+        const iconoAlerta = mroot.querySelector('svg[data-lucide="triangle-alert"]');
+        const colorSuccess = win.getComputedStyle(stamp).color;
+        check("B6 el sello de success muestra circle-check y NO triangle-alert",
+          Boolean(iconoCheck) && !iconoCheck.hidden && Boolean(iconoAlerta) && iconoAlerta.hidden,
+          `checkHidden=${iconoCheck?.hidden} alertHidden=${iconoAlerta?.hidden} color=${colorSuccess}`);
+
+        // ── C. Se cierra con Escape ─────────────────────────────────────
+        const eventos = [];
+        doc.addEventListener("whiskito:tx-modal-close", (e) => eventos.push(e.detail));
+        doc.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        esperarA(() => overlay.hidden === true, 1000);
+        check("C1 Escape cierra el modal", overlay.hidden === true,
+          `hidden=${overlay.hidden} display=${win.getComputedStyle(overlay).display}`);
+        check("C2 cerrar emite whiskito:tx-modal-close (con detalle)",
+          eventos.length === 1 && eventos[0]?.kind === "success",
+          `eventos=${JSON.stringify(eventos)}`);
+        check("C3 al cerrar se restaura el scroll del body",
+          doc.body.style.overflow !== "hidden", `overflow="${doc.body.style.overflow}"`);
+        check("C4 al cerrar el foco vuelve a quien lo tenía",
+          doc.activeElement === focoAntes || cardRoot.activeElement === focoAntes,
+          `doc=${doc.activeElement?.id || doc.activeElement?.tagName} shadow=${cardRoot.activeElement?.id}`);
+
+        // ── D. Se cierra con el botón #closeButton ──────────────────────
+        modal.open = true;
+        esperarA(() => overlay.hidden === false, 2000);
+        const antes = eventos.length;
+        closeButton.click();
+        esperarA(() => overlay.hidden === true, 1000);
+        check("D1 el botón #closeButton lo cierra", overlay.hidden === true && modal.open === false,
+          `hidden=${overlay.hidden} open=${modal.open}`);
+        check("D2 el botón también emite el evento de cierre", eventos.length === antes + 1,
+          `eventos=${eventos.length}`);
+
+        // ── E. Se cierra con click en el FONDO (y no con click adentro) ──
+        modal.open = true;
+        esperarA(() => overlay.hidden === false, 2000);
+        // El click tiene que pasar por elementFromPoint (una persona que
+        // clickea), no por un .click() del diálogo.
+        const enFondo = mroot.elementFromPoint(12, 12);
+        check("E0 el punto del click es el fondo", enFondo === overlay,
+          `elementFromPoint=${enFondo?.id || enFondo?.className}`);
+        const rectDialogo = dialog.getBoundingClientRect();
+        const enDialogo = mroot.elementFromPoint(rectDialogo.left + rectDialogo.width / 2, rectDialogo.top + 10);
+        check("E1 el centro del diálogo NO es el fondo", enDialogo !== overlay && dialog.contains(enDialogo),
+          `elementFromPoint=${enDialogo?.tagName}.${enDialogo?.className}`);
+        dialog.dispatchEvent(new win.MouseEvent("click", { bubbles: true, composed: true }));
+        check("E2 un click ADENTRO del diálogo no lo cierra", overlay.hidden === false,
+          `hidden=${overlay.hidden}`);
+        const antesFondo = eventos.length;
+        overlay.dispatchEvent(new win.MouseEvent("click", { bubbles: true, composed: true, clientX: 12, clientY: 12 }));
+        esperarA(() => overlay.hidden === true, 1000);
+        check("E3 un click en el FONDO sí lo cierra",
+          overlay.hidden === true && eventos.length === antesFondo + 1,
+          `hidden=${overlay.hidden} eventos=${eventos.length}`);
+
+        // ── F. kind="error": cambia el sello y el rótulo por defecto ────
+        modal.kind = "error";
+        modal.title = "";
+        modal.message = "El usuario rechazó la firma en la wallet.";
+        modal.open = true;
+        esperarA(() => overlay.hidden === false, 2000);
+        const colorError = win.getComputedStyle(stamp).color;
+        const tituloError = mroot.querySelector("#txTitle").textContent.trim();
+        check("F1 con kind=error el sello cambia de icono (check → triangle-alert)",
+          !iconoAlerta.hidden && iconoCheck.hidden,
+          `alertHidden=${iconoAlerta.hidden} checkHidden=${iconoCheck.hidden}`);
+        check("F2 y cambia de color (verde success → rojo cartel)",
+          colorError !== colorSuccess, `success=${colorSuccess} error=${colorError}`);
+        check("F3 sin title muestra el rótulo por defecto de error",
+          /cancelada/i.test(tituloError), `titulo="${tituloError}"`);
+        check("F4 el mensaje del motivo se ve",
+          (dialog.textContent ?? "").includes("El usuario rechazó la firma"),
+          `texto="${(dialog.textContent ?? "").replace(/\s+/g, " ").slice(0, 80)}"`);
+
+        // ── G. hash + explorer ──────────────────────────────────────────
+        const HASH = "0x9f2c4b7e1a3d5f6089b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d";
+        const EXPLORER = "https://sepolia.etherscan.io";
+        modal.hash = HASH;
+        modal.explorer = EXPLORER;
+        const link = mroot.querySelector("#explorerLink");
+        const hashEl = mroot.querySelector("#txHash");
+        check("G1 con hash+explorer aparece el link al explorador",
+          link.hidden === false && link.getAttribute("href") === `${EXPLORER}/tx/${HASH}`,
+          `hidden=${link.hidden} href=${link.getAttribute("href")}`);
+        check("G2 el hash se muestra acortado al medio y completo en el title",
+          hashEl.textContent !== HASH && hashEl.textContent.includes("…") &&
+          hashEl.getAttribute("title") === HASH && hashEl.parentElement.hidden === false,
+          `texto=${hashEl.textContent} titleOk=${hashEl.getAttribute("title") === HASH}`);
+        check("G3 el link dice que va al explorador",
+          /explorador/i.test(link.textContent ?? ""), `texto="${(link.textContent ?? "").trim()}"`);
+        modal.explorer = "";
+        check("G4 sin explorer el link NO aparece",
+          link.hidden === true && win.getComputedStyle(link).display === "none", `hidden=${link.hidden}`);
+        check("G5 pero el hash se sigue mostrando", mroot.querySelector("#txHashRow").hidden === false);
+        modal.hash = "";
+        check("G6 sin hash tampoco hay fila de hash", mroot.querySelector("#txHashRow").hidden === true);
+
+        // ── H. La API de `islands.js` (el enchufe del flujo) ────────────
+        showTxModal({
+          kind: "error",
+          title: "",
+          message: "Sin fondos.",
+          hash: "0xabc123",
+          explorer: "https://example.org",
+        });
+        const estadoIsla = {
+          abierto: modal.open === true && modal.kind === "error" && modal.message === "Sin fondos." &&
+            modal.hash === "0xabc123",
+          href: mroot.querySelector("#explorerLink").getAttribute("href"),
+          titulo: mroot.querySelector("#txTitle").textContent.trim(),
+          visible: overlay.hidden === false,
+        };
+        check("H2 showTxModal() setea las propiedades de la isla y la abre", estadoIsla.abierto,
+          JSON.stringify(estadoIsla));
+        check("H3 showTxModal() arma la URL del explorador",
+          estadoIsla.href === "https://example.org/tx/0xabc123", `href=${estadoIsla.href}`);
+        check("H4 con kind=error y title vacío abre con el rótulo por defecto",
+          estadoIsla.visible && /cancelada/i.test(estadoIsla.titulo), `titulo=${estadoIsla.titulo}`);
+        hideTxModal();
+        check("H5 hideTxModal() lo cierra", modal.open === false && overlay.hidden === true,
+          `open=${modal.open} hidden=${overlay.hidden}`);
+        showTxModal();
+        check("H6 la API tolera un undefined (no escribe 'undefined')",
+          !(dialog.textContent ?? "").includes("undefined"),
+          `msj="${mroot.querySelector("#txMessage").textContent}"`);
+        hideTxModal();
+
+        // ── I. La tarjeta quedó intacta ─────────────────────────────────
+        const iconos = cardRoot.querySelectorAll("svg.icon");
+        check("I1 la tarjeta sigue montada con sus 6 iconos",
+          Boolean(cardRoot.querySelector("#fundButton")) && iconos.length === 6,
+          `iconos=${iconos.length} fundButton=${Boolean(cardRoot.querySelector("#fundButton"))}`);
+        check("I2 la tarjeta sigue mostrando a quién le donás",
+          (cardRoot.textContent ?? "").includes("0xf39f...2266"),
+          `texto="${(cardRoot.textContent ?? "").replace(/\s+/g, " ").slice(0, 70)}"`);
+
+        // ── J. El dueño conectado NO firma nada (regla de `viewer-role.js`) ──
+        const inject = doc.createElement("script");
+        inject.textContent = fakeWalletSource(DIRECCION);
+        doc.body.append(inject);
+        const connectButton = cardRoot.querySelector("#connectWallet");
+        check("J1 la tarjeta ofrece conectar (sin wallet todavía puede donar en demo)",
+          Boolean(connectButton) && card.canDonate === true && cardRoot.querySelector("#fundButton").disabled !== true,
+          `boton=${Boolean(connectButton)} canDonate=${card.canDonate}`);
+        connectButton.click();
+        const conectado = esperarA(() => card.viewer === DIRECCION, 8000);
+        check("J2 conectado como el dueño, la cuenta llega a la tarjeta", Boolean(conectado),
+          `viewer=${card.viewer}`);
+        const fundButton = cardRoot.querySelector("#fundButton");
+        const hint = cardRoot.querySelector("#cardHint");
+        check("J3 con el dueño conectado el botón de donar queda deshabilitado",
+          card.canDonate === false && fundButton.disabled === true,
+          `canDonate=${card.canDonate} disabled=${fundButton.disabled}`);
+        check("J4 y se ve el motivo (mismo mensaje que la landing)",
+          hint.hidden === false && /Estás en tu propia página: compartí el link para recibir/.test(hint.textContent),
+          `hidden=${hint.hidden} hint="${hint.textContent}"`);
+        // Click programático: el botón está deshabilitado, así que no hay handler.
+        // Después se dispara el pedido a mano: la guarda del flujo tiene que
+        // cortar ANTES de tocar la wallet.
+        fundButton.click();
+        card.dispatchEvent(new win.CustomEvent("whiskito:fund-request", {
+          detail: { amount: 0.01, usd: 20 },
+          bubbles: true,
+        }));
+        check("J5 con el dueño conectado NO se le pide nada a la wallet (ni firma ni demo)",
+          win.__rpc.sent.length === 0 && card.status !== "success",
+          `enviadas=${win.__rpc.sent.length} status=${card.status}`);
+        check("J6 y el aviso es el de la regla de rol",
+          card.status === "error" && /Estás en tu propia página: compartí el link para recibir/.test(card.message),
+          `status=${card.status} msj="${card.message}"`);
+        check("J7 el pedido del dueño no abre ningún modal de éxito",
+          overlay.hidden === true, `overlayHidden=${overlay.hidden}`);
+
+        // ── K. Visitante con OTRA cuenta: la regla no lo bloquea ────────
+        const frame2 = document.getElementById("otro");
+        frame2.src = `/u/${OTRA_CUENTA}`;
+        const card2 = esperarA(
+          () => frame2.contentWindow?.document?.querySelector("whiskito-donate-card"),
+          15000
+        );
+        const win2 = frame2.contentWindow;
+        const card2Root = card2.shadowRoot ?? card2;
+        const inject2 = frame2.contentWindow.document.createElement("script");
+        inject2.textContent = fakeWalletSource(DIRECCION);
+        win2.document.body.append(inject2);
+        card2Root.querySelector("#connectWallet").click();
+        const conectado2 = esperarA(() => card2.viewer === DIRECCION, 8000);
+        check("K1 conectado en la página de OTRO, la cuenta llega a la tarjeta", Boolean(conectado2),
+          `viewer=${card2.viewer} owner=${OTRA_CUENTA}`);
+        check("K2 y el botón de donar NO queda bloqueado por rol",
+          card2.canDonate === true,
+          `canDonate=${card2.canDonate} hint="${card2Root.querySelector("#cardHint").textContent}"`);
+
+        const fallas = results.filter((r) => r.startsWith("FALLA"));
+        const veredicto = fallas.length
+          ? `FALLOS(${fallas.length}/${results.length}) :: ` + fallas.join(" ;; ")
+          : `OK(${results.length}/${results.length}) :: el modal avisa el veredicto y se cierra por las tres vías`;
+        reportar(veredicto + " || " + results.join(" | "));
+      } catch (error) {
+        reportar("ERROR :: " + (error?.message ?? String(error)) + " || " + results.join(" | "));
+      }
+    </script>
+  </body>
+</html>

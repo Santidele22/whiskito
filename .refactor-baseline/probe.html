@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>probe widget</title>
+  </head>
+  <body>
+    <img src="/__hold__" alt="" style="position: absolute; left: -10000px" />
+    <iframe id="app"></iframe>
+    <script type="module">
+      const Q = new URLSearchParams(location.search);
+      const w = Number(Q.get("w") || 1000);
+      const h = Number(Q.get("h") || 600);
+      const frame = document.getElementById("app");
+      frame.style.cssText = `width:${w}px;height:${h}px;border:0`;
+      const qs = Q.get("qs");
+      frame.src = "/src/index.html?cb=" + Date.now() + (qs ? "&" + qs : "");
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      frame.addEventListener("load", async () => {
+        const win = frame.contentWindow;
+        const doc = win.document;
+        const share = doc.querySelector("whiskito-share-card");
+        const sr = share.shadowRoot;
+        share.address = Q.get("addr") || "0x71C71C7A5B4D3E2F1A0B9C8D7E6F5A4B3C2D876F";
+        share.open = true;
+        await sleep(2000); // que se dibuje el QR
+
+        const rect = (sel) => {
+          const el = sr.querySelector(sel);
+          return el ? el.getBoundingClientRect() : null;
+        };
+        const m = (sel) => {
+          const el = sr.querySelector(sel);
+          if (!el) return `  ${sel}: (no está)`;
+          const r = el.getBoundingClientRect();
+          const cs = win.getComputedStyle(el);
+          return `  ${sel}: x=${Math.round(r.left)} y=${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)} pos=${cs.position} overflowY=${cs.overflowY} vis=${cs.visibility} op=${cs.opacity} z=${cs.zIndex}`;
+        };
+        const panel = sr.querySelector("#sharePanel");
+        const cierre = rect("#shareClose");
+        const cajaPanel = panel.getBoundingClientRect();
+        const dentro =
+          cierre &&
+          cierre.top >= cajaPanel.top - 1 &&
+          cierre.bottom <= cajaPanel.bottom + 1 &&
+          cierre.left >= cajaPanel.left - 1 &&
+          cierre.right <= cajaPanel.right + 1;
+
+        const lineas = [
+          `VENTANA ${w}x${h}`,
+          m("#shareTrigger"),
+          m("#sharePanel"),
+          m(".share-card"),
+          m(".share-actions"),
+          m("#qrCanvas"),
+          m("#shareClose"),
+          m("#shareLink"),
+          `panel scrolea adentro: ${panel.scrollHeight > panel.clientHeight} (scroll=${panel.scrollHeight} client=${panel.clientHeight})`,
+          `shareClose visible: ${Boolean(cierre && cierre.width > 0 && cierre.height > 0)} · dentro del panel: ${Boolean(dentro)}`,
+          "— datos —",
+          `precio de la tarjeta: ${doc.querySelector("whiskito-donate-card").ethPrice}` +
+            (doc.querySelector("whiskito-donate-card").ethPrice === 3400
+              ? " (valor de ejemplo: la chain no respondió)"
+              : " (leído de la chain)"),
+          `filas del panel: ${doc.querySelector("whiskito-panel").shadowRoot.querySelectorAll("#donationsList .pd-item").length}` +
+            ` · balance: ${doc.querySelector("whiskito-panel").balanceEth} ETH`,
+          `islas con shadow root: ${[...doc.querySelectorAll("*")].filter((e) => e.tagName.includes("-") && e.shadowRoot).length}` +
+            ` · navbar: ${doc.querySelector("whiskito-navbar").connectionState}`,
+        ];
+        await fetch("/__report__?d=" + encodeURIComponent(lineas.join(" ;; ").slice(0, 6000)), { mode: "no-cors" });
+      });
+    </script>
+  </body>
+</html>

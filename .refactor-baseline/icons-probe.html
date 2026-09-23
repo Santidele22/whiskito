@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>sonda de iconos lucide (módulo real)</title>
+    <style>
+      body { font: 13px/1.5 monospace; background: #f2e8d5; color: #1c1512; padding: 16px; margin: 0; }
+      h1 { font-size: 16px; margin: 0 0 12px; }
+      .icon { width: 1em; height: 1em; vertical-align: -0.15em; flex: none; }
+      .grandes { display: flex; gap: 28px; align-items: flex-end; margin: 10px 0 18px; }
+      .grandes figure { margin: 0; text-align: center; font-size: 64px; color: #1c1512; }
+      .grandes figcaption { font-size: 11px; margin-top: 6px; color: #7a6a55; }
+      .grilla { display: flex; flex-wrap: wrap; gap: 10px; }
+      .grilla span { display: inline-flex; align-items: center; gap: 7px; font-size: 15px;
+                     border: 1px solid #1c1512; border-radius: 4px; padding: 4px 9px; background: #fffdf6; }
+      .mal { border-color: #b3402f; background: #f0d6d0; }
+      #out { white-space: pre-wrap; margin-top: 16px; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <img src="/__hold__" alt="" style="position: absolute; left: -10000px" />
+    <h1>sonda de iconos — usa el `src/icons.js` real y el mapa de importaciones</h1>
+    <div class="grandes" id="grandes"></div>
+    <div class="grilla" id="grilla"></div>
+    <pre id="out">corriendo…</pre>
+
+    <!-- El mismo mapa de importaciones que usa index.html -->
+    <script type="importmap">
+      { "imports": { "lucide/": "/node_modules/lucide/dist/esm/" } }
+    </script>
+    <script type="module">
+      import { hydrateIcons, ICONS } from "/src/js/icons.js";
+
+      const GRANDES = ["glass-water", "bottle-wine", "wallet", "banknote", "hand-coins"];
+      const NOMBRES = [...Object.values(ICONS)].map((_, i) => i); // sólo para contar
+
+      const aKebab = (p) => p.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/([A-Z])([0-9])/g, "$1-$2").toLowerCase();
+      const delRegistro = Object.keys(ICONS).map(aKebab);
+
+      const grandes = document.getElementById("grandes");
+      for (const n of GRANDES) {
+        const fig = document.createElement("figure");
+        fig.innerHTML = `<i data-lucide="${n}"></i><figcaption>${n}</figcaption>`;
+        grandes.append(fig);
+      }
+      const grilla = document.getElementById("grilla");
+      for (const n of delRegistro) {
+        const s = document.createElement("span");
+        s.innerHTML = `<i data-lucide="${n}"></i>${n}`;
+        grilla.append(s);
+      }
+
+      // Prueba de shadow root con el módulo real
+      const host = document.createElement("div");
+      host.style.cssText = "font-size:32px;color:#c3402f;margin:8px 0";
+      document.body.prepend(host);
+      const shadow = host.attachShadow({ mode: "open" });
+      shadow.innerHTML = '<i data-lucide="glass-water"></i><i data-lucide="no-existe"></i>';
+
+      hydrateIcons(document); // documento entero (incluye el host, no su sombra)
+      hydrateIcons(shadow); // y la sombra aparte, que es lo que hace base-element
+
+      const fallan = [...document.querySelectorAll("i[data-lucide]")].map((el) => el.getAttribute("data-lucide"));
+      for (const el of document.querySelectorAll("i[data-lucide]")) el.closest("span,figure")?.classList.add("mal");
+      const svgs = document.querySelectorAll("svg[data-lucide]").length;
+      const enSombra = shadow.querySelectorAll("svg[data-lucide]").length;
+      const sobraSombra = shadow.querySelectorAll("i[data-lucide]").length;
+
+      // Cuántos módulos de lucide pidió de verdad la página
+      const pedidos = performance.getEntriesByType("resource").filter((r) => r.name.includes("/lucide/"));
+      const iconosPedidos = pedidos.filter((r) => r.name.includes("/icons/")).length;
+
+      const veredicto = fallan.length
+        ? `FALLAN(${fallan.length}) :: ${fallan.join(", ")}`
+        : `OK :: el registro tiene ${delRegistro.length} iconos y todos resuelven (${svgs} svg en el documento)`;
+      const sombra = `SHADOW svg=${enSombra} sobrantes=${sobraSombra} (esperado 1 y 1)`;
+      const red = `RED modulos lucide=${pedidos.length} de ellos iconos=${iconosPedidos}`;
+      document.getElementById("out").textContent = [veredicto, sombra, red].join("\n");
+      try {
+        await fetch("/__report__?d=" + encodeURIComponent(`SONDA2 ${veredicto} ;; ${sombra} ;; ${red}`), { mode: "no-cors" });
+      } catch (e) {}
+    </script>
+  </body>
+</html>

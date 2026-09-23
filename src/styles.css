@@ -1,0 +1,1173 @@
+/* ============================================================
+   🥃 WHISKITO — BLUES POSTER '62
+   ============================================================ */
+
+:root {
+  --paper: #f2e8d5; /* papel crema */
+  --paper-dark: #e9dcc0; /* papel envejecido */
+  --ink: #1c1512; /* tinta de imprenta */
+  --blues-red: #c3402f; /* rojo cartel */
+  --cobalt: #2b4a73; /* azul cobalto Blue Note */
+  --mustard: #d9a03f; /* mostaza (el whisky) */
+  --stamp: #7a6a55; /* sello gastado */
+  --success: #4a7a3d;
+  --error: #b3402f;
+
+  --display: "Anton", Impact, "Arial Narrow", sans-serif;
+  --cond: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --serif: Georgia, "Times New Roman", serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  line-height: 1.65;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Textura de papel: puntos de impresión sobre todo */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(
+    rgba(28, 21, 18, 0.045) 1px,
+    transparent 1.5px
+  );
+  background-size: 5px 5px;
+  pointer-events: none;
+  z-index: 2000;
+}
+
+::selection {
+  background: var(--blues-red);
+  color: var(--paper);
+}
+
+code {
+  font-family: "Courier New", monospace;
+  font-weight: 700;
+  color: var(--cobalt);
+}
+
+/* ---------- Iconos (Lucide) ----------
+   Lucide dibuja con `stroke="currentColor"`, así que el icono hereda el color
+   del slot donde vive. Y mide 1em, así que hereda también el tamaño: los slots
+   ya declaran su `font-size` (2.6rem en un ticket, 8.5rem el vaso del hero), y
+   el icono los sigue sin tocar ninguna regla de tamaño. */
+.icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  vertical-align: -0.15em;
+}
+
+/* ============================================================
+   WEB COMPONENTS
+   Los hosts no generan caja: son envoltorios transparentes, así que
+   el contenido (que en las islas vive en un shadow root) se sigue
+   acomodando en el lugar del host.
+   Con `display: block` el `.navbar` sticky perdería su containing
+   block (body) y dejaría de pegarse al hacer scroll, y `.donate-card`
+   dejaría de ser el grid item de `.donate-track`.
+   La excepción es el panel: necesita caja propia porque es el
+   destino del ancla #panel (ver abajo).
+   ============================================================ */
+whiskito-navbar,
+whiskito-hero,
+whiskito-how-it-works,
+whiskito-donate-card,
+whiskito-trust,
+whiskito-faq,
+whiskito-share-card,
+whiskito-radio,
+whiskito-footer {
+  display: contents;
+}
+
+/* El host del panel necesita caja: es el destino del ancla #panel, y un
+   elemento con display:contents no tiene a dónde scrollear. */
+whiskito-panel {
+  display: block;
+}
+
+/* El widget de compartir es del dueño de la página: para un visitante o un
+   donante se oculta. `display: contents` le gana al [hidden] del navegador, así
+   que hay que declararlo acá. */
+whiskito-share-card[hidden] {
+  display: none;
+}
+
+/* Lo mismo para la radio: `display: contents` en el host le gana al [hidden]. */
+whiskito-radio[hidden] {
+  display: none;
+}
+
+/* ---------- Secciones ---------- */
+.section {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 96px 32px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--blues-red);
+  margin-bottom: 14px;
+}
+
+.eyebrow::before,
+.eyebrow::after {
+  content: "★";
+  font-size: 0.7rem;
+}
+
+.section-head {
+  max-width: 720px;
+  margin-bottom: 56px;
+}
+
+.section-head h2 {
+  font-family: var(--display);
+  font-size: clamp(2.2rem, 5vw, 3.4rem);
+  text-transform: uppercase;
+  line-height: 0.98;
+  letter-spacing: 0.5px;
+  margin-bottom: 14px;
+}
+
+.section-head p {
+  font-size: 1.08rem;
+  color: #4a3f33;
+}
+
+/* ---------- Tooltip (ficha técnica bajo el cobalto) ---------- */
+.tt {
+  position: relative;
+  border-bottom: 2px dotted var(--cobalt);
+  cursor: help;
+  outline: none;
+  font-style: italic;
+}
+
+.tt::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  width: max-content;
+  max-width: 280px;
+  white-space: normal;
+  background: var(--cobalt);
+  color: var(--paper);
+  font-family: var(--cond);
+  font-size: 0.92rem;
+  font-style: normal;
+  letter-spacing: 0.3px;
+  line-height: 1.4;
+  padding: 12px 16px;
+  border: 2px solid var(--ink);
+  box-shadow: 5px 5px 0 var(--ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 150;
+}
+
+.tt:hover::after,
+.tt:focus::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ---------- Botones: tinta con sombra dura ---------- */
+.btn {
+  border: 3px solid var(--ink);
+  border-radius: 6px;
+  padding: 14px 28px;
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-decoration: none;
+  box-shadow: 5px 5px 0 var(--ink);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.btn:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0 var(--ink);
+}
+.btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--blues-red);
+  color: var(--paper);
+}
+.btn-outline {
+  background: var(--paper);
+  color: var(--ink);
+}
+.btn-lg {
+  padding: 18px 36px;
+  font-size: 1.3rem;
+}
+
+/* ---------- Navbar ----------
+   El navbar es una isla con shadow root: .navbar, .nav-logo, .logo-icon,
+   .nav-links, .nav-links a y .btn-nav viven en su `static styles`. No se
+   declaran acá: el documento no las ve y serían CSS muerto. */
+
+/* ============================================================
+   1. HERO — EL CARTEL
+   ============================================================ */
+.hero {
+  position: relative;
+  padding: 56px 32px 0;
+}
+
+/* Tira de luces de marquee */
+.marquee {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.marquee i {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--mustard);
+  box-shadow: 0 0 12px rgba(217, 160, 63, 0.9),
+    inset 0 -3px 4px rgba(0, 0, 0, 0.35);
+  animation: bulb 1.4s infinite;
+}
+
+.marquee i:nth-child(2n) {
+  background: var(--blues-red);
+  box-shadow: 0 0 12px rgba(195, 64, 47, 0.9),
+    inset 0 -3px 4px rgba(0, 0, 0, 0.35);
+  animation-delay: 0.35s;
+}
+
+.marquee i:nth-child(3n) {
+  animation-delay: 0.7s;
+}
+
+@keyframes bulb {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.hero-inner {
+  position: relative;
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 48px;
+  align-items: center;
+  padding-bottom: 72px;
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 2;
+}
+
+/* Badge tipo entrada rasgada */
+.hero-badge {
+  display: inline-block;
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  border: 2px dashed var(--ink);
+  background: var(--paper-dark);
+  padding: 8px 20px;
+  border-radius: 4px;
+  transform: rotate(-1.5deg);
+  margin-bottom: 28px;
+}
+
+.hero-title {
+  font-family: var(--display);
+  font-size: clamp(3rem, 8.5vw, 6.8rem);
+  text-transform: uppercase;
+  line-height: 0.92;
+  letter-spacing: 1px;
+  margin-bottom: 26px;
+}
+
+/* La palabra clave: relleno rojo + offset cobalto (serigrafía desregistrada) */
+.hero-title .fill-red {
+  display: block;
+  color: var(--blues-red);
+  text-shadow: 6px 6px 0 var(--cobalt);
+}
+
+.hero-subtitle {
+  font-size: 1.2rem;
+  max-width: 560px;
+  margin-bottom: 32px;
+  color: #3d332a;
+}
+
+.hero-subtitle em {
+  color: var(--blues-red);
+  font-style: italic;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+.hero-trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  font-family: var(--cond);
+  font-weight: 600;
+  font-size: 1.02rem;
+  letter-spacing: 0.5px;
+  color: var(--stamp);
+}
+
+.hero-trust span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.hero-trust .tick {
+  color: var(--success);
+  font-style: normal;
+  font-size: 1.1rem;
+}
+
+/* --- Visual: el vinilo + polaroids + sello --- */
+.hero-visual {
+  position: relative;
+  min-height: 480px;
+  z-index: 1;
+}
+
+/* Vinilo real: tinta con surcos y etiqueta roja */
+.vinyl {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--blues-red) 0 16%, transparent 16.5%),
+    radial-gradient(circle, var(--paper) 0 3%, transparent 3.5%),
+    repeating-radial-gradient(circle, var(--ink) 0 3px, #2b221b 3px 6px);
+  border: 2px solid var(--ink);
+  box-shadow: 10px 10px 0 rgba(28, 21, 18, 0.25);
+  animation: spin 14s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.glass-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 8.5rem;
+  z-index: 2;
+  color: var(--mustard);
+  filter: drop-shadow(6px 6px 0 rgba(28, 21, 18, 0.3));
+  user-select: none;
+  pointer-events: none;
+}
+
+/* A 8.5rem el trazo de 2 (sobre un viewBox de 24) queda pesado: se afina. */
+.glass-glow .icon {
+  stroke-width: 1.4;
+}
+
+/* Polaroids pegadas con cinta */
+.float-card {
+  position: absolute;
+  background: #fffdf6;
+  border: 2px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  padding: 16px 20px;
+  z-index: 3;
+  animation: floaty 7s ease-in-out infinite;
+}
+
+.float-card::before {
+  content: "";
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  width: 72px;
+  height: 24px;
+  background: rgba(217, 160, 63, 0.75);
+  border: 1px solid rgba(28, 21, 18, 0.2);
+  transform: translateX(-50%) rotate(-3deg);
+}
+
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(1deg);
+  }
+}
+
+.main-card {
+  top: 6%;
+  left: 0;
+  width: min(320px, 90%);
+}
+
+.mc-label {
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: var(--stamp);
+  margin-bottom: 10px;
+}
+
+.mc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.mc-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mc-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--mustard);
+  border: 2px solid var(--ink);
+  display: grid;
+  place-items: center;
+  font-size: 1.05rem;
+  flex-shrink: 0;
+}
+
+.mc-who code {
+  font-size: 0.85rem;
+}
+.mc-action {
+  font-size: 0.8rem;
+  color: var(--stamp);
+  font-style: italic;
+}
+
+.mc-amount {
+  text-align: right;
+}
+.mc-amount strong {
+  display: block;
+  color: var(--success);
+  font-size: 1.05rem;
+}
+.mc-amount span {
+  font-size: 0.78rem;
+  color: var(--stamp);
+}
+
+.mc-time {
+  margin-top: 12px;
+  font-size: 0.78rem;
+  color: var(--stamp);
+}
+.mc-time .icon {
+  color: var(--success);
+}
+
+.chip-a {
+  bottom: 10%;
+  right: 2%;
+  animation-delay: 2s;
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--cobalt);
+  white-space: nowrap;
+}
+
+.chip-b {
+  top: 44%;
+  right: 0;
+  animation-delay: 4s;
+  font-family: var(--cond);
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--stamp);
+  white-space: nowrap;
+}
+
+/* Sello circular girado */
+.stamp-seal {
+  position: absolute;
+  bottom: 6%;
+  left: 8%;
+  width: 112px;
+  height: 112px;
+  border: 3px solid var(--blues-red);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--blues-red);
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  line-height: 1.25;
+  transform: rotate(12deg);
+  opacity: 0.9;
+  z-index: 3;
+}
+
+.stamp-seal::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 1px solid var(--blues-red);
+  border-radius: 50%;
+}
+
+/* Stats: cartel de gira */
+.hero-stats {
+  position: relative;
+  z-index: 2;
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 3px solid var(--ink);
+  border-bottom: 3px solid var(--ink);
+}
+
+.stat {
+  text-align: center;
+  padding: 22px 16px;
+  border-left: 2px solid var(--ink);
+}
+
+.stat:first-child {
+  border-left: none;
+}
+
+.stat b {
+  display: block;
+  font-family: var(--display);
+  font-size: 2.2rem;
+  line-height: 1;
+  color: var(--blues-red);
+}
+
+.stat span {
+  font-family: var(--cond);
+  font-weight: 600;
+  font-size: 0.88rem;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--stamp);
+}
+
+/* ============================================================
+   2. CÓMO FUNCIONA — EL LINE-UP
+   ============================================================ */
+.track {
+  padding: 72px 0;
+}
+.track + .track {
+  border-top: 3px double var(--ink);
+}
+
+.track-head {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 44px;
+}
+
+/* El chip del acto vive dentro de `.track-head`, y `.track-head span` (0,1,1)
+   le ganaría a `.track-act` (0,1,0): el acto quedaría en color sello en vez de
+   papel sobre tinta. Se sube la especificidad para que gane el chip. */
+.track-head .track-act,
+.track-act {
+  font-family: var(--display);
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
+  text-transform: uppercase;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 4px 18px;
+  transform: rotate(-1deg);
+}
+
+.track-head h3 {
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: clamp(1.4rem, 2.5vw, 2rem);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--blues-red);
+}
+
+.track-head span {
+  font-family: var(--cond);
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: var(--stamp);
+}
+
+/* Acto I: tres tickets en fila */
+.timeline {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 30px;
+}
+
+.step {
+  position: relative;
+  background: #fffdf6;
+  border: 3px solid var(--ink);
+  border-radius: 6px;
+  box-shadow: 7px 7px 0 var(--ink);
+  padding: 32px 28px;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.step:hover {
+  transform: translate(-3px, -3px);
+  box-shadow: 11px 11px 0 var(--ink);
+}
+
+/* Perforación de ticket arriba */
+.step::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--blues-red) 0 12px,
+    transparent 12px 22px
+  );
+  border-bottom: 2px solid var(--ink);
+}
+
+.step-ghost {
+  position: absolute;
+  bottom: -18px;
+  right: 8px;
+  font-family: var(--display);
+  font-size: 6rem;
+  color: rgba(28, 21, 18, 0.07);
+  line-height: 1;
+}
+
+.step-icon {
+  font-size: 2.6rem;
+  margin: 14px 0 12px;
+  color: var(--blues-red);
+}
+.step h4 {
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 1.35rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  color: var(--cobalt);
+}
+.step p {
+  color: #3d332a;
+  font-size: 0.98rem;
+}
+
+/* Acto II: pasos numerados + LA CARTA */
+.donate-track {
+  display: grid;
+  grid-template-columns: 1fr 0.9fr;
+  gap: 56px;
+  align-items: center;
+}
+
+.steps-v {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+.steps-v li {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.step-num {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 3px solid var(--ink);
+  background: var(--mustard);
+  font-family: var(--display);
+  font-size: 1.4rem;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.steps-v h4 {
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 1.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  color: var(--ink);
+}
+
+.steps-v p {
+  color: #3d332a;
+  font-size: 0.98rem;
+}
+
+/* ---------- La carta (isla de donación) ----------
+   .donate-card, .card-*, .quick-amounts, .chip, .input-*, .usd-equiv y
+   .tx-status viven en el `static styles` de whiskito-donate-card. */
+
+/* ============================================================
+   3. EL BACKSTAGE (panel)
+   .backstage, .panel-*, .receipt*, .r-* y .pd-badge viven en el
+   `static styles` de whiskito-panel: la banda de tinta es suya.
+   ============================================================ */
+
+/* ============================================================
+   4. SEGURIDAD — LA ETIQUETA DE LA BOTELLA
+   ============================================================ */
+.trust-grid {
+  display: grid;
+  grid-template-columns: 0.85fr 1.15fr;
+  gap: 72px;
+  align-items: start;
+}
+
+.trust-head {
+  position: sticky;
+  top: 110px;
+}
+.trust-head h2 {
+  font-family: var(--display);
+  font-size: clamp(2.2rem, 5vw, 3.4rem);
+  text-transform: uppercase;
+  line-height: 0.98;
+  margin-bottom: 16px;
+}
+.trust-head p {
+  color: #4a3f33;
+  max-width: 380px;
+}
+
+.trust-list {
+  list-style: none;
+}
+
+.trust-list li {
+  display: flex;
+  gap: 24px;
+  padding: 30px 0;
+  border-top: 3px double var(--ink);
+  align-items: flex-start;
+}
+
+.trust-list li:last-child {
+  border-bottom: 3px double var(--ink);
+}
+
+.trust-num {
+  font-family: var(--display);
+  font-size: 2.6rem;
+  line-height: 1;
+  color: var(--blues-red);
+  flex-shrink: 0;
+  width: 60px;
+}
+
+.trust-list h4 {
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 1.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  color: var(--ink);
+}
+
+.trust-list p {
+  color: #4a3f33;
+  font-size: 0.98rem;
+}
+
+/* ============================================================
+   5. FAQ — PREGUNTAS DEL PÚBLICO
+   ============================================================ */
+.faq-section {
+  background: var(--paper-dark);
+  border-top: 3px solid var(--ink);
+}
+
+.faq-wrap {
+  max-width: 780px;
+  margin: 0 auto;
+}
+.faq-intro {
+  text-align: center;
+  margin-bottom: 48px;
+}
+.faq-intro p {
+  color: #4a3f33;
+  margin-top: 8px;
+  font-size: 1.08rem;
+}
+
+/* El h2 del FAQ no está dentro de `.section-head`, así que sin esto caería en
+   la serif del navegador y rompería la voz del cartel. Misma receta que
+   `.section-head h2`. */
+.faq-intro h2 {
+  font-family: var(--display);
+  font-size: clamp(2.2rem, 5vw, 3.4rem);
+  text-transform: uppercase;
+  line-height: 0.98;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+details {
+  background: #fffdf6;
+  border: 3px solid var(--ink);
+  border-radius: 6px;
+  box-shadow: 5px 5px 0 var(--ink);
+  margin-bottom: 18px;
+}
+
+details[open] {
+  box-shadow: 8px 8px 0 var(--cobalt);
+}
+
+summary {
+  cursor: pointer;
+  padding: 20px 60px 20px 24px;
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: 0.5px;
+  list-style: none;
+  position: relative;
+  color: var(--ink);
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+summary::after {
+  content: "+";
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--mustard);
+  color: var(--ink);
+  font-size: 1.3rem;
+  font-weight: 700;
+  transition: transform 0.25s;
+}
+
+details[open] summary::after {
+  content: "−";
+  transform: translateY(-50%) rotate(180deg);
+}
+
+details p {
+  padding: 0 24px 24px;
+  color: #3d332a;
+  font-size: 1rem;
+}
+
+details p b {
+  color: var(--blues-red);
+}
+
+/* ============================================================
+   6. FOOTER — PIE DE CARTEL
+   ============================================================ */
+.footer {
+  background: var(--ink);
+  color: var(--paper);
+  padding: 64px 32px 32px;
+}
+
+.footer-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 40px;
+  flex-wrap: wrap;
+}
+
+.footer-logo {
+  font-family: var(--display);
+  font-size: 2rem;
+  text-transform: uppercase;
+  color: var(--mustard);
+  margin-bottom: 10px;
+}
+
+.footer-tagline {
+  color: #b3a48d;
+  max-width: 360px;
+  font-style: italic;
+}
+
+.footer-links {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.footer-links a {
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #b3a48d;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.footer-links a:hover {
+  color: var(--mustard);
+}
+
+.footer-warning {
+  max-width: 1200px;
+  margin: 44px auto 0;
+  padding: 18px 24px;
+  border: 2px dashed var(--blues-red);
+  border-radius: 6px;
+  font-family: var(--cond);
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: #cfc2ab;
+  text-align: center;
+}
+
+.footer-warning b {
+  color: var(--blues-red);
+}
+.footer-warning .icon {
+  color: var(--blues-red);
+}
+
+.footer-copy {
+  max-width: 1200px;
+  margin: 24px auto 0;
+  padding-top: 20px;
+  border-top: 1px solid rgba(242, 232, 213, 0.15);
+  font-family: var(--cond);
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #b3a48d;
+  opacity: 0.7;
+  text-align: center;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 980px) {
+  .hero {
+    padding: 40px 24px 0;
+  }
+  .hero-inner {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    padding-bottom: 56px;
+  }
+  .hero-visual {
+    min-height: 420px;
+    max-width: 480px;
+    width: 100%;
+    margin: 0 auto;
+  }
+  .vinyl {
+    width: 320px;
+    height: 320px;
+  }
+  .glass-glow {
+    font-size: 7rem;
+  }
+  .main-card {
+    left: 0;
+  }
+  .chip-b {
+    right: 0;
+  }
+
+  .hero-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stat:nth-child(3) {
+    border-left: none;
+  }
+  .stat {
+    border-top: 2px solid var(--ink);
+  }
+  .stat:nth-child(-n + 2) {
+    border-top: none;
+  }
+
+  .timeline {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .donate-track {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  .trust-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .trust-head {
+    position: static;
+  }
+
+  .marquee {
+    gap: 14px;
+  }
+}
+
+@media (max-width: 768px) {
+  .section {
+    padding: 64px 20px;
+  }
+  .track {
+    padding: 56px 0;
+  }
+  .stamp-seal {
+    display: none;
+  }
+}
+
+/* ============================================================
+   PÁGINA DE DONACIÓN (`/u/0x…`)
+   La tarjeta sola, centrada en la pantalla. Todo cuelga de
+   `.donate-page`, la clase que sólo lleva el <body> de `donate.html`:
+   la landing no la tiene, así que ninguna regla de arriba cambia.
+   ============================================================ */
+.donate-page {
+  /* El papel y la tinta son los tokens de `:root` (el fondo ya lo pone `body`);
+     el alto mínimo es lo que da el espacio para centrar. */
+  min-height: 100vh;
+  min-height: 100dvh; /* en móvil, sin la barra del navegador */
+  display: grid;
+  place-items: center;
+  /* Aire alrededor para que la tarjeta no toque los bordes. `min-height` (y no
+     `height`) es lo que evita el corte en pantalla baja: si la tarjeta es más
+     alta que el viewport, el grid crece con ella y la página scrollea; con un
+     alto fijo, el centrado la recortaría por arriba sin forma de llegar. */
+  padding: 48px 20px;
+}
+
+.donate-page whiskito-donate-card {
+  display: block;
+  width: min(520px, 100%);
+  box-shadow: 0 18px 40px rgba(28, 21, 18, 0.18);
+}
+
+@media (max-width: 768px) {
+  .donate-page {
+    padding: 24px 14px;
+  }
+}

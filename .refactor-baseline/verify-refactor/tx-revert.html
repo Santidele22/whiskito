@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>verificación: revert minado en el camino de escritura</title>
+    <style>
+      html, body { margin: 0; background: #0b0b0b; color: #7CFC00; font: 13px/1.45 monospace; }
+      #out { white-space: pre-wrap; padding: 12px; }
+    </style>
+  </head>
+  <body>
+    <img src="/__hold__" alt="" style="position: absolute; left: -10000px" />
+    <pre id="out">corriendo…</pre>
+
+    <script>
+      // Vigilante en script clásico: si el módulo no llega a correr (por ejemplo
+      // porque `https://esm.sh/viem` no baja), la página NO puede quedar muda y
+      // hacer parecer "sin veredicto" en vez de mostrar el fallo real.
+      window.__reportado = false;
+      window.__reportar = async function (texto) {
+        window.__reportado = true;
+        document.getElementById("out").textContent = texto;
+        try {
+          await fetch("/__report__?d=" + encodeURIComponent(texto.slice(0, 6000)), { mode: "no-cors" });
+        } catch (e) { /* el texto también queda en el <pre> */ }
+      };
+      window.addEventListener("error", (e) => {
+        if (window.__reportado) return;
+        window.__reportar("RESULTADO: FAIL (CARGA) :: " + (e.message || e.type) + " · " +
+          (e.filename || e.target?.src || "?"));
+      }, true);
+      window.addEventListener("unhandledrejection", (e) => {
+        if (window.__reportado) return;
+        window.__reportar("RESULTADO: FAIL (PROMESA) :: " + (e.reason?.message || String(e.reason)));
+      });
+      setTimeout(() => {
+        if (!window.__reportado)
+          window.__reportar("RESULTADO: FAIL (TIMEOUT) :: el módulo no corrió (¿esm.sh inalcanzable desde el navegador?)");
+      }, 40000);
+    </script>
+
+    <script type="module">
+      // Verificación CONTRA LA CHAIN REAL (anvil 8545) del camino de escritura:
+      //   A1  un recibo minado con status 0x0 tiene que ser detectado por
+      //       `confirmReceipt()` (mensaje exacto "La transacción se revirtió").
+      //   A2  el mismo chequeo NO puede ser un falso positivo: un recibo
+      //       exitoso real no lanza.
+      //   A3  la simulación previa frena ANTES de firmar (sin eth_send*).
+      //   A5  qué hace anvil con un eth_sendTransaction que revierte.
+      //
+      // Las transacciones que revierten se firman LOCALMENTE (privateKeyToAccount)
+      // y salen por `eth_sendRawTransaction` con `gas` explícito: sin gas, viem
+      // estima antes de firmar y `eth_estimateGas` revienta en el revert, así que
+      // nunca llegaría a mandarse.
+      import { createWalletClient, http, parseEther } from "https://esm.sh/viem";
+      import { startReadClient, connectWallet, getWalletClient } from "../../src/js/chain.js";
+      import { confirmReceipt, simulateWrite } from "../../src/js/tx.js";
+      import { FUND_ABI } from "../../src/js/fund-abi.js";
+      import { NETWORKS } from "../../src/js/config.js";
+
+      const CONTRATO = NETWORKS[31337].fund;
+      const MOCK = NETWORKS[31337].priceFeed;
+      const RPC = NETWORKS[31337].rpc;
+
+      const PK0 = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"; // cuenta 0
+      const PK1 = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"; // cuenta 1
+      const PK2 = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"; // cuenta 2
+      const C0 = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+      const C1 = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"; // cuenta 1 (DUEÑO en el harness)
+      const C2 = "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc"; // cuenta 2 (saldo 0 en el fund)
+
+      const WITHDRAW_ALL = "0x853828b6"; // withdrawAll()
+      const UPDATE_ANSWER = "0xa87a20ce"; // updateAnswer(int256)
+      const FUND = "0x23024408"; // fund(address)
+      const RESPUESTA_ORACULO = 200000000000n; // 2000e8: no se cambia
+
+      const results = [];
+      const check = (name, ok, extra = "") => results.push({ name, ok: Boolean(ok), extra });
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const hashes = {};
+
+      // `privateKeyToAccount` vive en el subpath `viem/accounts`. Ojo: la URL
+      // SIN versión (`https://esm.sh/viem/accounts`) devuelve 500 cuando el
+      // registro de npm de esm.sh limita pedidos, así que se prueba con la
+      // versión fijada y con un segundo CDN antes de rendirse.
+      const privateKeyToAccount = await (async () => {
+        const urls = [
+          "https://esm.sh/viem@2/accounts",
+          "https://cdn.jsdelivr.net/npm/viem@2/accounts/+esm",
+        ];
+        const fallos = [];
+        for (const url of urls) {
+          try {
+            const m = await import(url);
+            if (m.privateKeyToAccount) return m.privateKeyToAccount;
+            fallos.push(url + " sin privateKeyToAccount");
+          } catch (e) {
+            fallos.push(url + " → " + e.message);
+          }
+        }
+        throw new Error("no se pudo cargar viem/accounts: " + fallos.join(" ;; "));
+      })();
+
+      // El recibo puede no estar todavía cuando responde el envío: se reintenta
+      // en vez de confiar en una sola lectura (`getTransactionReceipt` no sondea).
+      let publicoGlobal = null;
+      async function reciboDe(hash) {
+        for (let i = 0; i < 20; i++) {
+          try {
+            return await publicoGlobal.getTransactionReceipt({ hash });
+          } catch (e) {
+            if (e.name !== "TransactionReceiptNotFoundError") throw e;
+            await sleep(500);
+          }
+        }
+        throw new Error("el recibo de " + hash + " nunca apareció");
+      }
+
+      // Cadena de causas de viem → nombre del error propio del contrato.
+      function nombreDeError(error) {
+        const vistos = new Set();
+        let e = error;
+        while (e && typeof e === "object" && !vistos.has(e)) {
+          vistos.add(e);
+          const n = e.data?.errorName ?? e.errorName;
+          if (n) return n;
+          e = e.cause;
+        }
+        return null;
+      }
+
+      const saldoOnChain = async (address) => {
+        const r = await fetch(RPC, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0", id: 1, method: "eth_call",
+            params: [{ to: CONTRATO, data: "0x27e235e3" + address.slice(2).padStart(64, "0") }, "latest"],
+          }),
+        });
+        return BigInt((await r.json()).result ?? "0x0");
+      };
+
+      const reportar = (texto) => window.__reportar(texto);
+
+      (async () => {
+        try {
+          const publico = startReadClient();
+          publicoGlobal = publico;
+          check("A0 se creó el cliente de lectura por HTTP", Boolean(publico));
+
+          // El oráculo del MockV3Aggregator caduca a las 3 h (StalePrice) y hay
+          // otras sesiones usando este anvil: se refresca SÓLO si está vencido,
+          // y siempre con la misma respuesta (2000e8).
+          let oraculo = "";
+          try {
+            const p = await publico.readContract({ address: CONTRATO, abi: FUND_ABI, functionName: "getLatestPrice" });
+            oraculo = `fresco=${p}`;
+          } catch (e) {
+            const cuenta0 = createWalletClient({ account: privateKeyToAccount(PK0), transport: http(RPC) });
+            const h = await cuenta0.sendTransaction({
+              to: MOCK,
+              data: UPDATE_ANSWER + RESPUESTA_ORACULO.toString(16).padStart(64, "0"),
+              gas: 100000n,
+            });
+            await reciboDe(h);
+            oraculo = `refrescado=${h}`;
+          }
+          check("A0b el oráculo responde 2000e8 (o se refrescó con ese valor)", /200000000000|refrescado/.test(oraculo), oraculo);
+
+          const cuenta0 = createWalletClient({ account: privateKeyToAccount(PK0), transport: http(RPC) });
+          const cuenta1 = createWalletClient({ account: privateKeyToAccount(PK1), transport: http(RPC) });
+
+          // Deja a la cuenta 1 con saldo dentro del contrato (la donación que el
+          // contrato acredita en `balances[msg.sender]` del profesional).
+          const hFund = await cuenta0.sendTransaction({
+            to: CONTRATO,
+            data: FUND + C1.slice(2).padStart(64, "0"),
+            value: parseEther("0.01"),
+            gas: 300000n,
+          });
+          await reciboDe(hFund);
+          const saldoPrevio = await saldoOnChain(C1);
+          check("A0c la cuenta 1 arranca con saldo en el contrato", saldoPrevio > 0n, `balances=${saldoPrevio} wei (fund=${hFund})`);
+
+          // ── A2: transacción EXITOSA real ───────────────────────────────
+          const hOk = await cuenta1.sendTransaction({ to: CONTRATO, data: WITHDRAW_ALL, gas: 100000n });
+          hashes.ok = hOk;
+          const rOk = await reciboDe(hOk);
+          let okLanza = null;
+          try {
+            await confirmReceipt(hOk);
+          } catch (e) {
+            okLanza = e.message;
+          }
+          check("A2 el recibo exitoso real no hace lanzar a confirmReceipt",
+            rOk.status === "success" && okLanza === null,
+            `hash=${hOk} status=${rOk.status} lanzó=${okLanza === null ? "no" : okLanza}`);
+          check("A2b el retiro dejó el saldo en cero (la tx hizo efecto)",
+            (await saldoOnChain(C1)) === 0n, `balances=${await saldoOnChain(C1)} wei`);
+
+          // ── A1: recibo REVERTIDO minado (status 0x0) ───────────────────
+          // `gas` explícito: saltea la estimación, que en un revert falla antes
+          // de firmar y la transacción nunca llegaría a la chain.
+          const hRevert = await cuenta1.sendTransaction({ to: CONTRATO, data: WITHDRAW_ALL, gas: 100000n });
+          hashes.revertida = hRevert;
+          const rRevert = await reciboDe(hRevert);
+
+          let viemLanza = false;
+          try {
+            await publico.waitForTransactionReceipt({ hash: hRevert });
+          } catch (e) {
+            viemLanza = true;
+          }
+          let mensaje = null;
+          let recibido = null;
+          try {
+            recibido = await confirmReceipt(hRevert);
+          } catch (e) {
+            mensaje = e.message;
+          }
+          check("A1 viem NO lanza al esperar el recibo revertido (el agujero existe)",
+            rRevert.status === "reverted" && viemLanza === false && recibido === null,
+            `status=${rRevert.status} waitForTransactionReceipt lanzó=${viemLanza} confirmReceipt devolvió=${recibido === null ? "nada" : "un recibo"}`);
+          check("A1b confirmReceipt rechaza el recibo revertido con el mensaje exacto",
+            mensaje === "La transacción se revirtió",
+            `hash=${hRevert} mensaje=«${mensaje}»`);
+
+          // ── A5: qué hace anvil con un eth_sendTransaction que revierte ──
+          const envio = await fetch(RPC, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0", id: 7, method: "eth_sendTransaction",
+              params: [{ from: C1, to: CONTRATO, data: WITHDRAW_ALL }], // sin `gas`: anvil decide
+            }),
+          });
+          const respuesta = await envio.json();
+          let detalleA5 = JSON.stringify(respuesta);
+          let anvilMina = false;
+          if (respuesta.result) {
+            hashes.a5 = respuesta.result;
+            const r5 = await reciboDe(respuesta.result);
+            anvilMina = r5.status === "reverted";
+            detalleA5 = `result=${respuesta.result} status=${r5.status} block=${r5.blockNumber}`;
+          }
+          check("A5 anvil mina con status 0x0 el eth_sendTransaction que revierte (no lo rechaza)",
+            anvilMina, detalleA5);
+
+          // ── A3: la simulación frena antes de firmar ────────────────────
+          const registro = [];
+          window.ethereum = {
+            request: async ({ method }) => {
+              registro.push(method);
+              if (method === "eth_requestAccounts" || method === "eth_accounts") return [C2];
+              if (method === "eth_chainId") return "0x7a69";
+              throw new Error("método no esperado en el stub: " + method);
+            },
+          };
+          const conectada = await connectWallet();
+          check("A3a la wallet falsa conectó la cuenta 2 (saldo 0 en el fund)",
+            conectada.toLowerCase() === C2.toLowerCase() && Boolean(getWalletClient()) && (await saldoOnChain(C2)) === 0n,
+            `conectada=${conectada} balances=${await saldoOnChain(C2)} wei`);
+
+          let errorA3 = null;
+          try {
+            await simulateWrite({ functionName: "withdrawAll" });
+          } catch (e) {
+            errorA3 = e;
+          }
+          const firmas = registro.filter((m) => /eth_sendTransaction|eth_sendRawTransaction|eth_signTransaction/.test(m));
+          check("A3b simulateWrite rechaza con el error del contrato ya decodificado",
+            errorA3 !== null && nombreDeError(errorA3) === "NoBalanceToWithdraw",
+            `errorName=${nombreDeError(errorA3)} · causas=${["shortMessage", "message"].map((k) => errorA3?.[k]).filter(Boolean).join(" | ").slice(0, 300)}`);
+          check("A3c y NO se pidió ninguna firma ni envío a la wallet",
+            firmas.length === 0,
+            `métodos=${[...new Set(registro)].join(",")} · firmas=${firmas.length}`);
+
+          // ── Reporte ────────────────────────────────────────────────────
+          const fallos = results.filter((r) => !r.ok);
+          const detalle = results
+            .map((r) => `${r.ok ? "PASS" : "FAIL"} ${r.name} — ${r.extra}`)
+            .join("\n");
+          const cabecera = fallos.length
+            ? `RESULTADO: FAIL (${fallos.length} de ${results.length}) :: ` + fallos.map((f) => f.name).join(" ;; ")
+            : `RESULTADO: PASS (${results.length}/${results.length})`;
+          const texto =
+            `${cabecera}\n` +
+            `HASH_REVERTIDA=${hashes.revertida ?? "(ninguno)"}\n` +
+            `HASH_OK=${hashes.ok ?? "(ninguno)"}\n` +
+            `HASH_A5=${hashes.a5 ?? "(ninguno)"}\n` +
+            detalle;
+          console.log(texto);
+          await reportar(texto);
+        } catch (error) {
+          // El stack minificado de viem no dice nada: se reporta la cadena de
+          // causas, que es donde viven el nombre del error y su mensaje.
+          const partes = [
+            `name=${error?.name}`,
+            `message=${error?.message}`,
+            `shortMessage=${error?.shortMessage}`,
+          ];
+          let causa = error?.cause;
+          for (let i = 0; causa && i < 4; i++, causa = causa.cause) {
+            partes.push(`cause${i}=${causa.name ?? "?"}: ${causa.message ?? causa.shortMessage ?? "?"}`);
+          }
+          await reportar("RESULTADO: FAIL (ERROR) :: " + partes.join(" ;; ").slice(0, 1200));
+        }
+      })();
+    </script>
+  </body>
+</html>

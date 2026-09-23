@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>sonda de la página de donación</title>
+    <style>
+      html, body { margin: 0; background: #0b0b0b; color: #7CFC00; font: 13px/1.45 monospace; }
+      iframe { width: 1440px; height: 900px; border: 0; position: absolute; left: -10000px; top: 0; }
+      #out { white-space: pre-wrap; padding: 10px; }
+    </style>
+  </head>
+  <body>
+    <!-- Sonda de la página de donación: se copia a `src/` para ser del mismo
+         origen que la página y se borra después; las dos cosas las hace
+         `verify-refactor/run-donate-probe.py`. -->
+    <img id="hold" alt="" style="position: absolute; left: -10000px" />
+    <iframe id="ruta"></iframe>
+    <iframe id="sinDueno"></iframe>
+    <iframe id="duenoConecta"></iframe>
+    <iframe id="duenoDirecto"></iframe>
+    <iframe id="otroFan"></iframe>
+    <iframe id="fanRechaza"></iframe>
+    <!-- Bloque N: el link COBRA DE VERDAD (el fan firma, el cartel anuncia
+         on-chain y no queda nada guardado en el navegador). -->
+    <iframe id="fanDemo"></iframe>
+    <!-- Bloque S (cambio de cuenta): una página de donación para el camino
+         feliz (S1–S5), una para el selector cancelado (S6), una para la wallet
+         sin `wallet_requestPermissions` (S7), la landing para el navbar (S8) y
+         tres más para el cartel de la donación anterior (S10–S12) más una
+         landing para el cartel de la tarjeta (S13). -->
+    <iframe id="cambioCuenta"></iframe>
+    <iframe id="cancelaCambio"></iframe>
+    <iframe id="walletSinSelector"></iframe>
+    <iframe id="landing"></iframe>
+    <iframe id="cartelCambio"></iframe>
+    <iframe id="cartelAviso"></iframe>
+    <iframe id="cartelVacio"></iframe>
+    <iframe id="landingCartel"></iframe>
+    <pre id="out">corriendo…</pre>
+
+    <script type="module">
+      const DIRECCION = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+      const OTRA = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+      const SELF_MSG = /tu propia página/i;
+      const results = [];
+      const check = (name, ok, extra = "") =>
+        results.push(`${ok ? "ok" : "FALLA"} ${name}${extra ? " <" + extra + ">" : ""}`);
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      /**
+       * Dónde vive el colector del reporte: `serve.py` (`/__hold__` y
+       * `/__report__`). Por defecto 8899 —el puerto del harness— y el runner lo
+       * pasa por query porque a esta sonda la sirve OTRO origen: el dev server,
+       * que es el único que tiene la ruta `/u/0x…` (medido: `serve.py` contesta
+       * 404 ahí). Por eso el reporte viaja cross-origin con `no-cors`.
+       */
+      const REPORT_BASE =
+        new URLSearchParams(location.search).get("report") || "http://127.0.0.1:8899";
+      // El `__hold__` retiene el evento `load` (así un `--screenshot` no saca la
+      // foto antes de que la sonda termine): va al mismo colector que el reporte.
+      document.getElementById("hold").src = REPORT_BASE + "/__hold__";
+
+      const reportar = (texto) => {
+        document.getElementById("out").textContent = texto;
+        fetch(REPORT_BASE + "/__report__?d=" + encodeURIComponent(texto.slice(0, 20000)), {
+          mode: "no-cors",
+        });
+      };
+
+      const cargar = async (frame, url, espera = 2500) => {
+        frame.src = url;
+        await new Promise((res) => {
+          frame.addEventListener("load", res, { once: true });
+          setTimeout(res, 15000);
+        });
+        await sleep(espera);
+        return frame.contentWindow;
+      };
+
+      /**
+       * Wallet falsa EIP-1193. Se inyecta DESPUÉS de cargar la página a
+       * propósito: la app pregunta `hasWallet()` recién cuando alguien pide
+       * conectar o donar, así que alcanza. `rechaza` simula que el usuario
+       * cierra la wallet en vez de firmar (EIP-1193: 4001).
+       *
+       * Para el bloque S (cambio de cuenta) además:
+       *   - registra TODO lo que pasa por `request()` (para poder afirmar qué
+       *     método pidió la app y en qué orden),
+       *   - `wallet_requestPermissions` contesta el permiso de `eth_accounts` y,
+       *     si `cuentaTrasSelector` viene, la cuenta que devuelve después CAMBIA
+       *     (es lo que hace el popup: la persona eligió otra),
+       *   - `sinSelector` simula la wallet que no conoce el método (`-32601`),
+       *   - `cancelaSelector` simula que la persona cierra el selector (`4001`),
+       *   - guarda los `.on(...)` y `emitir(...)` avisa a la app igual que
+       *     MetaMask (`accountsChanged`).
+       */
+      const inyectarWallet = (win, cuentaInicial, opciones = {}) => {
+        const {
+          rechaza = false,
+          sinSelector = false,
+          cancelaSelector = false,
+          cuentaTrasSelector = null,
+          // Con `reenviar`, un `eth_sendTransaction` se manda DE VERDAD a anvil
+          // (las cuentas de anvil están desbloqueadas, así que el nodo firma) y se
+          // devuelve el hash real: sin esto la app no puede confirmar nada, porque
+          // el recibo se espera contra la chain y un hash inventado no existe.
+          reenviar = false,
+        } = opciones;
+        /** La cuenta que la wallet contesta AHORA (la cambia el popup o la app). */
+        let cuenta = cuentaInicial;
+        /** Todo método que la wallet vio pasar, en orden. */
+        const metodos = [];
+        /** Los `eth_sendTransaction` que llegaron a firmarse. */
+        const envios = [];
+        /** evento → handlers registrados con `.on(...)`. */
+        const oyentes = new Map();
+
+        win.ethereum = {
+          isMetaMask: true,
+          request: async ({ method, params }) => {
+            metodos.push(method);
+            if (method === "eth_requestAccounts" || method === "eth_accounts") return [cuenta];
+            if (method === "eth_chainId") return "0x7a69";
+            if (method === "wallet_requestPermissions") {
+              if (sinSelector) {
+                const error = new Error(
+                  "The method wallet_requestPermissions does not exist / is not available."
+                );
+                error.code = -32601;
+                throw error;
+              }
+              if (cancelaSelector) {
+                const error = new Error("User rejected the request.");
+                error.code = 4001;
+                throw error;
+              }
+              if (cuentaTrasSelector) cuenta = cuentaTrasSelector;
+              return [{ parentCapability: "eth_accounts" }];
+            }
+            if (method === "wallet_revokePermissions") return null;
+            if (method === "eth_sendTransaction") {
+              if (rechaza) {
+                const error = new Error("User rejected the request.");
+                error.code = 4001;
+                throw error;
+              }
+              if (reenviar) {
+                const r = await fetch("http://127.0.0.1:8545", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    jsonrpc: "2.0", id: 1, method: "eth_sendTransaction",
+                    params: [params[0]],
+                  }),
+                });
+                const json = await r.json();
+                if (json.error) throw new Error(json.error.message);
+                envios.push(method);
+                return json.result;
+              }
+              envios.push(method);
+              return "0x" + "ab".repeat(32);
+            }
+            return null;
+          },
+          on: (evento, handler) => {
+            if (!oyentes.has(evento)) oyentes.set(evento, []);
+            oyentes.get(evento).push(handler);
+          },
+        };
+
+        /** Cuántos handlers registró la app para un evento (S9: tiene que ser 1). */
+        const suscripciones = (evento) => (oyentes.get(evento) ?? []).length;
+        /**
+         * La wallet avisa. Con `accountsChanged` primero cambia lo que contesta
+         * `eth_accounts` (es lo que hace MetaMask: el evento llega DESPUÉS del
+         * cambio, no antes).
+         */
+        const emitir = (evento, args) => {
+          if (evento === "accountsChanged") cuenta = args[0] ?? "";
+          for (const handler of oyentes.get(evento) ?? []) handler(args);
+        };
+
+        return { envios, metodos, emitir, suscripciones };
+      };
+
+      const shadow = (el) => el?.shadowRoot ?? el;
+      // El texto visible de una isla, sin el `<style>` del shadow root (si no,
+      // cualquier búsqueda de copy podría matchear una regla de CSS). No se
+      // clona la raíz: `ShadowRoot.cloneNode()` no está soportado.
+      const textoDe = (el) => {
+        const raiz = shadow(el);
+        if (!raiz) return "";
+        const partes = [];
+        const recorrer = (nodo) => {
+          for (const hijo of nodo.childNodes) {
+            if (hijo.nodeType === 3) { partes.push(hijo.textContent); continue; }
+            if (hijo.nodeType !== 1) continue;
+            if (hijo.tagName === "STYLE" || hijo.tagName === "SCRIPT") continue;
+            recorrer(hijo);
+          }
+        };
+        recorrer(raiz);
+        return partes.join(" ").replace(/\s+/g, " ").trim();
+      };
+
+      try {
+        // ── D. La ruta del link compartido sirve la página de donación ──
+        const win = await cargar(document.getElementById("ruta"), `/u/${DIRECCION}`);
+        const doc = win.document;
+        const visible = (el) => {
+          if (!el) return false;
+          const s = win.getComputedStyle(el);
+          return s.display !== "none" && s.visibility !== "hidden";
+        };
+        const hosts = [...doc.querySelectorAll("*")].filter((e) => e.tagName.includes("-"));
+        const etiquetas = hosts.map((h) => h.tagName.toLowerCase());
+        check("D1 la ruta /u/0x… sirve la página de donación", doc.querySelector("whiskito-donate-card") !== null);
+        check("D2 y NO trae la landing",
+          !doc.querySelector("whiskito-hero") && !doc.querySelector("whiskito-panel") &&
+          !doc.querySelector("whiskito-how-it-works") && !doc.querySelector("whiskito-footer"),
+          `islas=${etiquetas.join(",")}`);
+        const DE_LA_PAGINA = ["whiskito-donate-card", "whiskito-tx-modal"];
+        const intrusas = etiquetas.filter((t) => !DE_LA_PAGINA.includes(t));
+        check("D3 la página no trae ninguna isla que no sea de donación",
+          intrusas.length === 0 && etiquetas.includes("whiskito-donate-card"),
+          `hosts=${etiquetas.join(",")} intrusas=${intrusas.join(",") || "ninguna"}`);
+        const card = doc.querySelector("whiskito-donate-card");
+        const cardRoot = shadow(card);
+        const fund = cardRoot.querySelector("#fundButton");
+        const modal = doc.querySelector("whiskito-tx-modal");
+        const mRoot = shadow(modal);
+        const overlay = mRoot.querySelector("#overlay") ?? mRoot.firstElementChild;
+        check("D4 la tarjeta está montada y ofrece donar", Boolean(fund));
+        check("D5 el precio llegó a la tarjeta", Number.isFinite(card.ethPrice), `ethPrice=${card.ethPrice}`);
+        check("D6 la card dice A QUIÉN le donás", textoDe(card).includes("0xf39f...2266"));
+        // La página del link cobra de verdad: no puede haber ningún aviso de
+        // demo, ni en el documento ni adentro de la tarjeta.
+        const banner = doc.querySelector("#demoBanner");
+        check("D7 la página del link NO dice demo en ninguna parte (cobra de verdad)",
+          !banner && !/demo/i.test(textoDe(doc.body)),
+          `banner=${Boolean(banner)} texto=${textoDe(doc.body).slice(0, 120)}`);
+        check("D7b y la tarjeta tampoco",
+          cardRoot.querySelector(".card-demo")?.hidden === true,
+          `hidden=${cardRoot.querySelector(".card-demo")?.hidden}`);
+        const conectar = [...cardRoot.querySelectorAll("button")].find((b) => /conectar/i.test(b.textContent ?? ""));
+        check("G1 la card ofrece conectarse a la wallet", Boolean(conectar));
+        if (conectar) {
+          conectar.click();
+          await sleep(600);
+          check("G2 sin wallet instalada lo dice claro", card.status === "error", `msj=${card.message}`);
+        }
+        // Sin ninguna transacción todavía, el modal no tiene nada que anunciar.
+        check("M1 el modal no aparece mientras no pasó nada",
+          !modal.open && !visible(overlay), `open=${modal.open}`);
+
+        // ── E. Se dona desde ahí mismo (demo), y el cartel no miente ────
+        card.amount = "0.005";
+        await sleep(150);
+        fund.click();
+        await sleep(400);
+        const enCurso = card.status;
+        const spinner = cardRoot.querySelector(".tx-spinner");
+        const estiloPending = spinner ? win.getComputedStyle(spinner) : null;
+        check("E4 en pending el spinner gira",
+          Boolean(spinner) && estiloPending.display !== "none" && spinner.getAnimations().length > 0,
+          `display=${estiloPending?.display} anims=${spinner?.getAnimations().length}`);
+        await sleep(2600);
+        check("E1 el click deja la tarjeta en pending", enCurso === "pending", `status=${enCurso}`);
+        check("E2 y termina en success (se donó desde la página)", card.status === "success", `status=${card.status}`);
+        check("E3 el mensaje dice que fue simulada (sin wallet), no 'confirmada on-chain'",
+          /simulad/i.test(card.message ?? "") && !/on-chain/i.test(card.message ?? ""),
+          `msj=${card.message}`);
+        const estiloFinal = spinner ? win.getComputedStyle(spinner) : null;
+        check("E5 al terminar el spinner se apaga", !estiloFinal || estiloFinal.display === "none", `display=${estiloFinal?.display}`);
+        // El modal se abre SOLO, con el veredicto de esa donación.
+        check("E6 la donación en demo abre el modal por sí sola",
+          modal.open && modal.kind === "success", `open=${modal.open} kind=${modal.kind}`);
+        check("E7 y avisa que fue simulada por no haber wallet",
+          /simulad/i.test(textoDe(modal)) && /no había wallet/i.test(textoDe(modal)),
+          `texto=${textoDe(modal).slice(0, 140)}`);
+        check("E8 sin hash no hay link al explorador", !visible(mRoot.querySelector("#explorerLink")));
+        mRoot.querySelector("#closeButton")?.click();
+        await sleep(300);
+        check("E9 se cierra y la card queda con el resultado", !modal.open && card.status === "success", `open=${modal.open}`);
+
+        // ── M. El modal, manejado por propiedades ──────────────────────
+        modal.kind = "success";
+        modal.title = "¡Donación confirmada!";
+        modal.message = "Llegaron 0.005 ETH al profesional.";
+        modal.open = true;
+        await sleep(400);
+        check("M2 se abre y muestra el título y el mensaje",
+          visible(overlay) && textoDe(modal).includes("¡Donación confirmada!") && textoDe(modal).includes("0.005 ETH"),
+          `open=${modal.open}`);
+        const cerrar = mRoot.querySelector("#closeButton");
+        check("M3 tiene botón de cerrar", Boolean(cerrar));
+        cerrar?.click();
+        await sleep(300);
+        check("M4 el botón lo cierra", !modal.open && !visible(overlay), `open=${modal.open}`);
+        modal.open = true;
+        await sleep(300);
+        doc.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        await sleep(300);
+        check("M5 Escape lo cierra", !modal.open, `open=${modal.open}`);
+        modal.open = true;
+        await sleep(300);
+        overlay?.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+        await sleep(300);
+        check("M6 click en el fondo lo cierra", !modal.open, `open=${modal.open}`);
+        modal.kind = "error";
+        modal.open = true;
+        await sleep(400);
+        const svgs = [...mRoot.querySelectorAll("svg")];
+        const visibles = svgs.filter((s) => visible(s)).map((s) => s.getAttribute("data-lucide"));
+        check("M7 con kind=error se ve el icono de error y no el de éxito",
+          visibles.includes("triangle-alert") && !visibles.includes("circle-check"),
+          `iconos visibles=${visibles.join(",") || "ninguno"}`);
+        modal.hash = "0x" + "cd".repeat(32);
+        modal.explorer = "https://ejemplo.test";
+        await sleep(300);
+        const enlace = mRoot.querySelector("#explorerLink");
+        check("M8 con hash y explorador aparece el link correcto",
+          visible(enlace) && (enlace?.getAttribute("href") ?? "") === "https://ejemplo.test/tx/0x" + "cd".repeat(32),
+          `href=${enlace?.getAttribute("href")}`);
+        modal.explorer = "";
+        await sleep(300);
+        check("M9 sin explorador el link no aparece", !visible(mRoot.querySelector("#explorerLink")));
+        modal.open = false;
+        await sleep(200);
+
+        // ── P. La guardia: con donaciones REALES el dueño NO se dona a sí mismo ──
+        // La página del link cobra de verdad, así que la guardia del dueño
+        // aplica siempre: no hay ningún modo demo que la relaje acá.
+        const winD = await cargar(document.getElementById("duenoConecta"), `/u/${DIRECCION}`);
+        inyectarWallet(winD, DIRECCION);
+        const cardD = winD.document.querySelector("whiskito-donate-card");
+        const raizD = shadow(cardD);
+        raizD.querySelector("#connectWallet")?.click();
+        await sleep(900);
+        const fundD = raizD.querySelector("#fundButton");
+        check("P1 con la cuenta DUEÑA conectada el botón de donar queda deshabilitado",
+          fundD?.disabled === true && cardD.canDonate === false,
+          `disabled=${fundD?.disabled} canDonate=${cardD.canDonate}`);
+        check("P2 y la card dice por qué", SELF_MSG.test(textoDe(cardD)), `texto=${textoDe(cardD).slice(0, 90)}`);
+
+        // P3: el agujero — el dueño va derecho a donar, sin conectar antes (real).
+        const winH = await cargar(document.getElementById("duenoDirecto"), `/u/${DIRECCION}`);
+        const walletH = inyectarWallet(winH, DIRECCION);
+        const cardH = winH.document.querySelector("whiskito-donate-card");
+        const modalH = winH.document.querySelector("whiskito-tx-modal");
+        const raizH = shadow(cardH);
+        cardH.amount = "0.005";
+        await sleep(200);
+        raizH.querySelector("#fundButton")?.click();
+        await sleep(2500);
+        check("P3 el dueño que dona SIN conectar antes no firma nada",
+          walletH.envios.length === 0, `eth_sendTransaction=${walletH.envios.length}`);
+        check("P4 y la card se lo dice (no queda un éxito falso)",
+          cardH.status === "error" && SELF_MSG.test(cardH.message ?? ""),
+          `status=${cardH.status} msj=${cardH.message}`);
+        check("P5 y el modal NO se abre: no es un veredicto de transacción",
+          !modalH.open, `open=${modalH.open}`);
+
+        // P6 (control positivo): un fan que NO es el dueño firma de verdad.
+        const winF = await cargar(document.getElementById("otroFan"), `/u/${DIRECCION}`);
+        const walletF = inyectarWallet(winF, OTRA);
+        const cardF = winF.document.querySelector("whiskito-donate-card");
+        const raizF = shadow(cardF);
+        raizF.querySelector("#connectWallet")?.click();
+        await sleep(900);
+        cardF.amount = "0.005";
+        await sleep(250);
+        const fundF = raizF.querySelector("#fundButton");
+        check("P6 con OTRA cuenta la card sigue habilitada", fundF?.disabled === false && cardF.canDonate === true,
+          `disabled=${fundF?.disabled} canDonate=${cardF.canDonate}`);
+        fundF?.click();
+        await sleep(2500);
+        check("P7 y el fan sí llega a firmar (la guardia no bloquea de más)",
+          walletF.envios.length > 0, `eth_sendTransaction=${walletF.envios.length}`);
+
+        // ── Q. Cancelar no es fallar: el veredicto lo dice ──────────────
+        // Cancelar una firma sólo existe cuando hay firma.
+        const winQ = await cargar(document.getElementById("fanRechaza"), `/u/${DIRECCION}`);
+        inyectarWallet(winQ, OTRA, { rechaza: true });
+        const cardQ = winQ.document.querySelector("whiskito-donate-card");
+        const modalQ = winQ.document.querySelector("whiskito-tx-modal");
+        const raizQ = shadow(cardQ);
+        cardQ.amount = "0.005";
+        await sleep(200);
+        raizQ.querySelector("#fundButton")?.click();
+        await sleep(3500);
+        check("Q1 con la firma rechazada el modal avisa 'cancelada'",
+          modalQ.open && modalQ.kind === "error" && /cancelad/i.test(modalQ.title ?? ""),
+          `open=${modalQ.open} kind=${modalQ.kind} titulo=${modalQ.title}`);
+        check("Q2 y la card queda en error con el motivo", cardQ.status === "error", `status=${cardQ.status} msj=${cardQ.message}`);
+
+        // ── N. El link COBRA DE VERDAD: firma, confirma y no deja rastro local ──
+        // El modo demo es de la landing, no de esta página: acá un fan conectado
+        // firma contra el contrato, el cartel anuncia la confirmación on-chain y
+        // no se guarda nada en el navegador (la historia sale de la chain).
+        const winN = await cargar(document.getElementById("fanDemo"), `/u/${DIRECCION}`);
+        // `reenviar`: la firma va a anvil de verdad (la cuenta está desbloqueada),
+        // así el flujo puede completar simular → firmar → confirmar el recibo.
+        const walletN = inyectarWallet(winN, OTRA, { reenviar: true });
+        const cardN = winN.document.querySelector("whiskito-donate-card");
+        const modalN = winN.document.querySelector("whiskito-tx-modal");
+        const raizN = shadow(cardN);
+        winN.localStorage.removeItem("whiskito:demo-ledger:v1");
+        raizN.querySelector("#connectWallet")?.click();
+        await sleep(900);
+        cardN.amount = "0.005";
+        await sleep(250);
+        raizN.querySelector("#fundButton")?.click();
+        // La donación real tarda más que la simulada: simular → firmar → esperar
+        // el recibo (viem sondea el nodo). Se espera a que la tarjeta salga de
+        // `pending` en vez de confiar en un número mágico de milisegundos.
+        for (let i = 0; i < 25 && cardN.status === "pending"; i++) await sleep(400);
+        await sleep(300);
+        check("N1 el fan del link SÍ firma la donación (es real, gasta gas)",
+          walletN.envios.length === 1, `eth_sendTransaction=${walletN.envios.length}`);
+        check("N2 y el cartel anuncia la confirmación on-chain",
+          cardN.status === "success" && /confirmada on-chain/i.test(cardN.message ?? ""),
+          `status=${cardN.status} msj=${cardN.message}`);
+        check("N3 el modal lo cuenta como una donación confirmada",
+          modalN.open && /on-chain/i.test(textoDe(modalN)) && !/simulad/i.test(textoDe(modalN)),
+          `texto=${textoDe(modalN).slice(0, 140)}`);
+        check("N4 y no queda ningún rastro local (la historia es la de la chain)",
+          winN.localStorage.getItem("whiskito:demo-ledger:v1") === null,
+          `ledger=${winN.localStorage.getItem("whiskito:demo-ledger:v1")}`);
+
+        // ── F. Sin destinatario no se dona a cualquiera ─────────────────
+        const win2 = await cargar(document.getElementById("sinDueno"), "/donate.html");
+        const card2 = win2.document.querySelector("whiskito-donate-card");
+        check("F1 sin ?u= la página avisa que el link no dice a quién donarle",
+          card2?.status === "error" && /link/i.test(card2?.message ?? ""),
+          `status=${card2?.status} msj=${card2?.message}`);
+
+        // ── S. Cambiar de cuenta (wallet EIP-1193 falsa) ────────────────
+        // El bug que esto caza: una vez dado el permiso `eth_accounts`, la
+        // wallet contesta SIEMPRE la misma cuenta sin abrir nada, así que una
+        // dApp que sólo sabe llamar a `eth_requestAccounts` queda pegada a una
+        // cuenta para siempre. Lo que abre el selector es
+        // `wallet_requestPermissions`, que es método de la WALLET (se pide por
+        // `window.ethereum.request`, no por viem).
+        const SWITCH_TEXT = "Cambiar cuenta";
+        const SHORT_OTRA = "0x7099...79C8"; // shortAddress(OTRA)
+
+        /** ¿Se ve de verdad? (display, visibility y caja no degenerada). */
+        const visibleEn = (w, el) => {
+          if (!el) return false;
+          const s = w.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return (
+            s.display !== "none" && s.visibility !== "hidden" && r.width > 0 && r.height > 0
+          );
+        };
+
+        /**
+         * Qué hay ARRIBA del centro del elemento, medido dentro del árbol donde
+         * vive (`shadowRoot.elementFromPoint`; `document.elementFromPoint`
+         * devolvería el host y taparía todo lo de adentro). Un `.click()`
+         * programático no prueba nada: un botón tapado también lo recibe.
+         */
+        const hitDe = (raiz, el) => {
+          if (!raiz || !el) return { arriba: null, alcanzable: false };
+          const r = el.getBoundingClientRect();
+          const arriba = raiz.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return {
+            arriba,
+            alcanzable: Boolean(arriba) && (arriba === el || el.contains(arriba)),
+          };
+        };
+
+        /** Un click como el de una persona: sobre el nodo que está arriba. */
+        const clickDeVerdad = (w, raiz, el) => {
+          const { arriba, alcanzable } = hitDe(raiz, el);
+          if (!alcanzable) return false;
+          arriba.dispatchEvent(
+            new w.MouseEvent("click", { bubbles: true, composed: true, cancelable: true })
+          );
+          return true;
+        };
+
+        // S1–S5: una sola página, con la cuenta DUEÑA conectada primero y el
+        // popup eligiendo OTRA después. S9 también sale de esta wallet.
+        const winC = await cargar(document.getElementById("cambioCuenta"), `/u/${DIRECCION}`, 3000);
+        const walletC = inyectarWallet(winC, DIRECCION, { cuentaTrasSelector: OTRA });
+        const cardC = winC.document.querySelector("whiskito-donate-card");
+        const raizC = shadow(cardC);
+        raizC?.querySelector("#connectWallet")?.click();
+        await sleep(1200);
+        cardC.amount = "0.005";
+        await sleep(200);
+
+        const switchC = raizC?.querySelector("#switchWallet");
+        const hitC = hitDe(raizC, switchC);
+        check("S1 con la cuenta DUEÑA conectada el botón 'Cambiar cuenta' de la tarjeta existe, dice el texto exacto y es clickeable de verdad",
+          Boolean(switchC) && switchC.textContent.trim() === SWITCH_TEXT &&
+          visibleEn(winC, switchC) && hitC.alcanzable,
+          `existe=${Boolean(switchC)} texto="${switchC?.textContent.trim()}" visible=${visibleEn(winC, switchC)} arriba=<${hitC.arriba?.tagName ?? "nada"}> alcanzable=${hitC.alcanzable}`);
+
+        const antesS2 = walletC.metodos.length;
+        const clickeadoS2 = clickDeVerdad(winC, raizC, switchC);
+        await sleep(1500);
+        const nuevosS2 = walletC.metodos.slice(antesS2);
+        const iSelector = nuevosS2.indexOf("wallet_requestPermissions");
+        const iCuentas = nuevosS2.indexOf("eth_requestAccounts");
+        check("S2 ese click pide el SELECTOR con wallet_requestPermissions (método que ve la wallet, no viem) y no con eth_requestAccounts a secas",
+          clickeadoS2 && iSelector >= 0 && (iCuentas === -1 || iSelector < iCuentas),
+          `clickeado=${clickeadoS2} metodos=[${nuevosS2.join(",")}]`);
+
+        const fundC = raizC?.querySelector("#fundButton");
+        const textoC = textoDe(cardC);
+        check("S3 después de elegir OTRA cuenta la tarjeta dice que se dona desde la nueva, el botón de donar queda habilitado y el aviso de 'tu propia página' desaparece",
+          String(cardC?.viewer).toLowerCase() === OTRA.toLowerCase() &&
+          textoC.includes(SHORT_OTRA) && fundC?.disabled === false && cardC?.canDonate === true &&
+          !SELF_MSG.test(textoC),
+          `viewer=${cardC?.viewer} diceDesde=${textoC.includes(SHORT_OTRA)} disabled=${fundC?.disabled} canDonate=${cardC?.canDonate} avisoPropia=${SELF_MSG.test(textoC)}`);
+
+        winC.__sigueViva = true; // si la página se recargara, la marca se pierde
+        walletC.emitir("accountsChanged", [DIRECCION]);
+        await sleep(1500);
+        const fundC4 = raizC?.querySelector("#fundButton");
+        const textoC4 = textoDe(cardC);
+        check("S4 un accountsChanged hacia la cuenta DUEÑA deshabilita donar y muestra el aviso de 'tu propia página', sin recargar la página",
+          String(cardC?.viewer).toLowerCase() === DIRECCION.toLowerCase() &&
+          fundC4?.disabled === true && cardC?.canDonate === false && SELF_MSG.test(textoC4) &&
+          winC.__sigueViva === true,
+          `viewer=${cardC?.viewer} disabled=${fundC4?.disabled} canDonate=${cardC?.canDonate} avisoPropia=${SELF_MSG.test(textoC4)} sinRecargar=${winC.__sigueViva === true}`);
+
+        const revocacionesAntesS5 = walletC.metodos.filter((m) => m === "wallet_revokePermissions").length;
+        walletC.emitir("accountsChanged", []);
+        await sleep(1200);
+        const conectaC5 = raizC?.querySelector("#connectWallet");
+        const cambiaC5 = raizC?.querySelector("#switchWallet");
+        const revocacionesS5 = walletC.metodos.filter((m) => m === "wallet_revokePermissions").length;
+        check("S5 accountsChanged con [] deja la página desconectada (el viewer se limpia y vuelve a ofrecerse conectar) y NO se revoca el permiso",
+          cardC?.viewer === "" && visibleEn(winC, conectaC5) && !visibleEn(winC, cambiaC5) &&
+          !/Donás desde/i.test(textoDe(cardC)) && revocacionesS5 === revocacionesAntesS5,
+          `viewer="${cardC?.viewer}" conectaVisible=${visibleEn(winC, conectaC5)} cambiaVisible=${visibleEn(winC, cambiaC5)} revocaciones=${revocacionesS5} (antes ${revocacionesAntesS5})`);
+
+        // S6: el usuario cierra el selector (4001). No puede cambiar nada.
+        const winQ6 = await cargar(document.getElementById("cancelaCambio"), `/u/${DIRECCION}`, 3000);
+        const walletQ6 = inyectarWallet(winQ6, OTRA, { cancelaSelector: true });
+        const cardQ6 = winQ6.document.querySelector("whiskito-donate-card");
+        const raizQ6 = shadow(cardQ6);
+        raizQ6?.querySelector("#connectWallet")?.click();
+        await sleep(1200);
+        cardQ6.amount = "0.005";
+        await sleep(200);
+        const estadoQ6 = {
+          viewer: cardQ6?.viewer,
+          disabled: raizQ6?.querySelector("#fundButton")?.disabled,
+          status: cardQ6?.status,
+          message: cardQ6?.message,
+        };
+        const antesQ6 = walletQ6.metodos.length;
+        clickDeVerdad(winQ6, raizQ6, raizQ6?.querySelector("#switchWallet"));
+        await sleep(1500);
+        const nuevosQ6 = walletQ6.metodos.slice(antesQ6);
+        const disabledQ6 = raizQ6?.querySelector("#fundButton")?.disabled;
+        check("S6 cancelar el selector (4001) devuelve null y no cambia nada: sigue la misma cuenta, el mismo estado del botón y ningún error de conexión",
+          nuevosQ6.includes("wallet_requestPermissions") &&
+          cardQ6?.viewer === estadoQ6.viewer &&
+          String(cardQ6?.viewer).toLowerCase() === OTRA.toLowerCase() &&
+          disabledQ6 === estadoQ6.disabled && estadoQ6.disabled === false &&
+          cardQ6?.status === estadoQ6.status && cardQ6?.status !== "error" &&
+          !/no se pudo|error/i.test(cardQ6?.message ?? ""),
+          `metodos=[${nuevosQ6.join(",")}] viewer=${cardQ6?.viewer} (antes ${estadoQ6.viewer}) disabled=${disabledQ6} (antes ${estadoQ6.disabled}) status=${cardQ6?.status} (antes ${estadoQ6.status}) msj="${cardQ6?.message}"`);
+
+        // S7: la wallet no conoce `wallet_requestPermissions` (-32601): el camino
+        // de la app es revocar el permiso y volver a pedirlo.
+        const winT7 = await cargar(document.getElementById("walletSinSelector"), `/u/${DIRECCION}`, 3000);
+        const walletT7 = inyectarWallet(winT7, OTRA, { sinSelector: true });
+        const cardT7 = winT7.document.querySelector("whiskito-donate-card");
+        const raizT7 = shadow(cardT7);
+        raizT7?.querySelector("#connectWallet")?.click();
+        await sleep(1200);
+        cardT7.amount = "0.005";
+        await sleep(200);
+        const antesT7 = walletT7.metodos.length;
+        clickDeVerdad(winT7, raizT7, raizT7?.querySelector("#switchWallet"));
+        await sleep(1800);
+        const nuevosT7 = walletT7.metodos.slice(antesT7);
+        const iReqT7 = nuevosT7.indexOf("wallet_requestPermissions");
+        const iRevT7 = nuevosT7.indexOf("wallet_revokePermissions");
+        const iAccT7 = nuevosT7.indexOf("eth_requestAccounts");
+        const disabledT7 = raizT7?.querySelector("#fundButton")?.disabled;
+        check("S7 con una wallet sin wallet_requestPermissions (-32601) se revoca el permiso y se vuelve a pedir, y la app queda conectada y usable",
+          iReqT7 >= 0 && iRevT7 > iReqT7 && iAccT7 > iRevT7 &&
+          String(cardT7?.viewer).toLowerCase() === OTRA.toLowerCase() &&
+          disabledT7 === false && cardT7?.canDonate === true && cardT7?.status !== "error",
+          `metodos=[${nuevosT7.join(",")}] viewer=${cardT7?.viewer} disabled=${disabledT7} canDonate=${cardT7?.canDonate} status=${cardT7?.status}`);
+
+        // S8: el navbar de la landing (`/`), que también ofrece cambiar cuenta.
+        const winL = await cargar(document.getElementById("landing"), "/", 3500);
+        const walletL = inyectarWallet(winL, DIRECCION);
+        const navbarL = winL.document.querySelector("whiskito-navbar");
+        const raizL = shadow(navbarL);
+        raizL?.querySelector("#connectButton")?.click();
+        await sleep(1800);
+        const switchL = raizL?.querySelector("#switchButton");
+        const hitL = hitDe(raizL, switchL);
+        let pedidoL = false;
+        winL.document.addEventListener("whiskito:switch-account-request", () => { pedidoL = true; }, { once: true });
+        const clickeadoL = clickDeVerdad(winL, raizL, switchL);
+        await sleep(1500);
+        walletL.emitir("accountsChanged", [OTRA]);
+        await sleep(1800);
+        const textoL = textoDe(navbarL);
+        check("S8 en la landing el #switchButton existe, dice el texto exacto, es clickeable de verdad, emite whiskito:switch-account-request y un accountsChanged deja el navbar con la cuenta nueva",
+          Boolean(switchL) && switchL.textContent.trim() === SWITCH_TEXT &&
+          visibleEn(winL, switchL) && hitL.alcanzable && clickeadoL && pedidoL &&
+          String(navbarL?.account).toLowerCase() === OTRA.toLowerCase() &&
+          textoL.includes(SHORT_OTRA),
+          `existe=${Boolean(switchL)} texto="${switchL?.textContent.trim()}" visible=${visibleEn(winL, switchL)} arriba=<${hitL.arriba?.tagName ?? "nada"}> alcanzable=${hitL.alcanzable} clickeado=${clickeadoL} emitido=${pedidoL} cuenta=${navbarL?.account} navbar="${textoL.slice(0, 70)}"`);
+
+        // S9: una sola suscripción. Con dos `.on("accountsChanged")` la app
+        // reaccionaría dos veces al mismo aviso de la wallet.
+        check("S9 la app se suscribe UNA sola vez a accountsChanged, aunque haya conectado dos veces",
+          walletC.suscripciones("accountsChanged") === 1,
+          `on("accountsChanged")=${walletC.suscripciones("accountsChanged")} · conexiones exitosas=2 (una inicial + una del selector)`);
+
+        // S10–S13: el CARTEL de la donación anterior no puede sobrevivir al
+        // cambio de cuenta. `applyRole` limpia el aviso derivado del rol
+        // (`hintText`), pero el cartel de estado (`#txStatus`) es OTRO nodo y lo
+        // llenaba `onFundRequest` con el mismo texto: quedaba un cartel de error
+        // contradiciendo al botón de donar ya habilitado.
+        /**
+         * Deja una página de donación con el CARTEL DE ERROR del dueño a la
+         * vista y la app conectada a la cuenta DUEÑA. El único camino que llena
+         * ese cartel es el de `donate.js` con el dueño yendo DERECHO a donar sin
+         * conectar antes: con la cuenta dueña ya conectada el botón queda
+         * deshabilitado y un click no emite nada, así que por ahí no hay cartel
+         * posible.
+         */
+        const paginaConCartel = async (idFrame) => {
+          // El cartel de "estás en tu propia página": esta página cobra de verdad.
+          const w = await cargar(document.getElementById(idFrame), `/u/${DIRECCION}`, 3000);
+          const wallet = inyectarWallet(w, DIRECCION, { cuentaTrasSelector: OTRA });
+          const card = w.document.querySelector("whiskito-donate-card");
+          const raiz = shadow(card);
+          card.amount = "0.005";
+          await sleep(250);
+          const clickeado = clickDeVerdad(w, raiz, raiz?.querySelector("#fundButton"));
+          await sleep(2500);
+          /** El estado que importa, leído en el momento en que se pregunta. */
+          const estado = () => ({
+            status: card.status,
+            message: card.message,
+            cartel: visibleEn(w, raiz?.querySelector("#txStatus")),
+            disabled: raiz?.querySelector("#fundButton")?.disabled,
+            viewer: card.viewer,
+          });
+          return { w, wallet, card, raiz, clickeado, estado };
+        };
+        const describir = (e) =>
+          `<status=${e.status} msj="${e.message}" cartel=${e.cartel} disabled=${e.disabled} viewer=${e.viewer}>`;
+        /** El cartel estaba de verdad antes (si no, la aserción pasaría sola). */
+        const habiaCartel = (e) =>
+          e.status === "error" && SELF_MSG.test(e.message ?? "") && e.cartel === true;
+        const cartelLimpio = (e) =>
+          e.status === "idle" && e.message === "" && e.cartel === false;
+
+        const s10 = await paginaConCartel("cartelCambio");
+        const antesS10 = s10.estado();
+        clickDeVerdad(s10.w, s10.raiz, s10.raiz?.querySelector("#switchWallet"));
+        await sleep(1800);
+        const despuesS10 = s10.estado();
+        check("S10 en /u/0x… el cartel de error del dueño (status error + mensaje de 'tu propia página') DESAPARECE al cambiar de cuenta con el botón de la tarjeta, y el botón queda habilitado",
+          habiaCartel(antesS10) && cartelLimpio(despuesS10) &&
+          despuesS10.disabled === false && String(despuesS10.viewer).toLowerCase() === OTRA.toLowerCase(),
+          `clickDonar=${s10.clickeado} ANTES=${describir(antesS10)} DESPUÉS=${describir(despuesS10)}`);
+
+        const s11 = await paginaConCartel("cartelAviso");
+        const antesS11 = s11.estado();
+        s11.wallet.emitir("accountsChanged", [OTRA]);
+        await sleep(1800);
+        const despuesS11 = s11.estado();
+        check("S11 en /u/0x… el mismo cartel de error se limpia cuando la wallet avisa accountsChanged con otra cuenta",
+          habiaCartel(antesS11) && cartelLimpio(despuesS11) &&
+          String(despuesS11.viewer).toLowerCase() === OTRA.toLowerCase(),
+          `clickDonar=${s11.clickeado} ANTES=${describir(antesS11)} DESPUÉS=${describir(despuesS11)}`);
+
+        const s12 = await paginaConCartel("cartelVacio");
+        const antesS12 = s12.estado();
+        s12.wallet.emitir("accountsChanged", []);
+        await sleep(1500);
+        const despuesS12 = s12.estado();
+        const conecta12 = visibleEn(s12.w, s12.raiz?.querySelector("#connectWallet"));
+        const cambia12 = visibleEn(s12.w, s12.raiz?.querySelector("#switchWallet"));
+        check("S12 en /u/0x… el cartel de error también se limpia cuando la wallet suelta todas las cuentas, y la página queda desconectada ofreciendo conectar",
+          habiaCartel(antesS12) && cartelLimpio(despuesS12) &&
+          despuesS12.viewer === "" && conecta12 && !cambia12,
+          `clickDonar=${s12.clickeado} ANTES=${describir(antesS12)} DESPUÉS=${describir(despuesS12)} conectaVisible=${conecta12} cambiaVisible=${cambia12}`);
+
+        // S13: la landing. Ahí la tarjeta NO conoce el rol (`can-donate` lo setea
+        // sólo la página de donación), así que el dueño puede clickear donar y el
+        // que bloquea y llena el cartel es `app.js`. Se mide el cartel después
+        // del "Cambiar cuenta" del navbar (con `?demo=0`, porque la landing SÍ es
+        // demo por defecto y ahí el dueño puede donar).
+        const winZ = await cargar(document.getElementById("landingCartel"), "/?demo=0", 3500);
+        const walletZ = inyectarWallet(winZ, DIRECCION, { cuentaTrasSelector: OTRA });
+        const navbarZ = winZ.document.querySelector("whiskito-navbar");
+        const raizZ = shadow(navbarZ);
+        const cardZ = winZ.document.querySelector("whiskito-donate-card");
+        const raizCZ = shadow(cardZ);
+        raizZ?.querySelector("#connectButton")?.click();
+        await sleep(1800);
+        cardZ.amount = "0.005";
+        await sleep(250);
+        // La tarjeta de la landing vive abajo del pliegue: sin bajar hasta ella,
+        // `elementFromPoint` devuelve null y el click "de verdad" no se puede dar.
+        // Se baja por POSICIÓN ABSOLUTA y forzando el salto INSTANTÁNEO: con
+        // `html { scroll-behavior: smooth }` (styles.css) la bajada es animada y,
+        // con el iframe fuera de pantalla, la animación no avanza (medido:
+        // `scrollY` se quedaba en 0 y el hit-test daba `<nada>`).
+        const fundZ = raizCZ?.querySelector("#fundButton");
+        const bajarAlBoton = () => {
+          const r = fundZ?.getBoundingClientRect();
+          if (!r) return;
+          winZ.document.documentElement.style.scrollBehavior = "auto";
+          winZ.scrollTo({
+            top: winZ.scrollY + r.top - winZ.innerHeight / 2,
+            behavior: "instant",
+          });
+        };
+        bajarAlBoton();
+        await sleep(400);
+        const rectZ = fundZ?.getBoundingClientRect();
+        const hitZ = hitDe(raizCZ, fundZ);
+        const clickDonarZ = clickDeVerdad(winZ, raizCZ, fundZ);
+        await sleep(700);
+        const estadoZ = () => ({
+          status: cardZ.status,
+          message: cardZ.message,
+          cartel: visibleEn(winZ, raizCZ?.querySelector("#txStatus")),
+          disabled: raizCZ?.querySelector("#fundButton")?.disabled,
+          cuenta: navbarZ?.account,
+        });
+        const antesZ = estadoZ();
+        const clickSwitchZ = clickDeVerdad(winZ, raizZ, raizZ?.querySelector("#switchButton"));
+        await sleep(1800);
+        const despuesZ = estadoZ();
+        check("S13 en la landing, después de 'Cambiar cuenta' en el navbar la tarjeta de donación no queda con el cartel viejo del dueño",
+          habiaCartel(antesZ) && cartelLimpio(despuesZ) &&
+          String(despuesZ.cuenta).toLowerCase() === OTRA.toLowerCase(),
+          `clickDonar=${clickDonarZ} (arriba=<${hitZ.arriba?.tagName ?? "nada"}${hitZ.arriba?.id ? " #" + hitZ.arriba.id : ""}> rect=${rectZ ? `${Math.round(rectZ.left)},${Math.round(rectZ.top)} ${Math.round(rectZ.width)}x${Math.round(rectZ.height)}` : "n/a"} scrollY=${Math.round(winZ.scrollY)}) clickCambiar=${clickSwitchZ} ANTES=${describir(antesZ)} DESPUÉS=<status=${despuesZ.status} msj="${despuesZ.message}" cartel=${despuesZ.cartel} disabled=${despuesZ.disabled} cuenta=${despuesZ.cuenta}>`);
+
+        // S14/S15: las otras dos líneas nuevas de `app.js` son las ramas de
+        // `accountsChanged`, que ningún bloque tocaba con un cartel a la vista.
+        // Se sigue en la MISMA landing: se vuelve a llenar el cartel volviendo al
+        // dueño y se avisa el cambio por la wallet, como haría MetaMask.
+        const nuevoCartelZ = async () => {
+          walletZ.emitir("accountsChanged", [DIRECCION]);
+          await sleep(1500);
+          cardZ.amount = "0.005";
+          await sleep(200);
+          bajarAlBoton();
+          await sleep(300);
+          const clickeado = clickDeVerdad(winZ, raizCZ, fundZ);
+          await sleep(700);
+          return clickeado;
+        };
+
+        const click14 = await nuevoCartelZ();
+        const antesS14 = estadoZ();
+        walletZ.emitir("accountsChanged", [OTRA]);
+        await sleep(1800);
+        const despuesS14 = estadoZ();
+        check("S14 en la landing el cartel viejo también se limpia cuando la wallet avisa accountsChanged con otra cuenta",
+          habiaCartel(antesS14) && cartelLimpio(despuesS14) &&
+          String(despuesS14.cuenta).toLowerCase() === OTRA.toLowerCase(),
+          `clickDonar=${click14} ANTES=${describir(antesS14)} DESPUÉS=<status=${despuesS14.status} msj="${despuesS14.message}" cartel=${despuesS14.cartel} disabled=${despuesS14.disabled} cuenta=${despuesS14.cuenta}>`);
+
+        const click15 = await nuevoCartelZ();
+        const antesS15 = estadoZ();
+        walletZ.emitir("accountsChanged", []);
+        await sleep(1500);
+        const despuesS15 = estadoZ();
+        check("S15 en la landing el cartel viejo se limpia cuando la wallet suelta todas las cuentas, y el navbar queda desconectado",
+          habiaCartel(antesS15) && cartelLimpio(despuesS15) &&
+          despuesS15.cuenta === "" && navbarZ?.connectionState === "disconnected",
+          `clickDonar=${click15} ANTES=${describir(antesS15)} DESPUÉS=<status=${despuesS15.status} msj="${despuesS15.message}" cartel=${despuesS15.cartel} disabled=${despuesS15.disabled} cuenta="${despuesS15.cuenta}" conexion=${navbarZ?.connectionState}>`);
+
+        const fallas = results.filter((r) => r.startsWith("FALLA"));
+        const veredicto = fallas.length
+          ? `FALLOS(${fallas.length}/${results.length}) :: ` + fallas.join(" ;; ")
+          : `OK(${results.length}/${results.length}) :: el link abre la card, se dona ahí, el modal anuncia el veredicto, el dueño no se dona a sí mismo y el cambio de cuenta se sigue sin recargar (y sin dejar el cartel viejo)`;
+        reportar(veredicto + " ;; " + results.join(" | "));
+      } catch (error) {
+        // Se reportan también las comprobaciones ya hechas: si algo revienta en
+        // el medio, el veredicto tiene que decir dónde.
+        reportar("ERROR :: " + (error?.message ?? String(error)) + " ;; " + results.join(" | "));
+      }
+    </script>
+  </body>
+</html>

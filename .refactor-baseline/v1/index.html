@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Birrita 🍺 — Invitá o recibí donaciones en ETH, directo entre wallets. Sin registro, sin comisiones, sin intermediarios. Como Cafecito, pero en blockchain."
+    />
+    <title>🍺 Birrita — Invitame una birrita en ETH</title>
+    <link rel="stylesheet" type="text/css" href="styles.css" media="screen">
+  </head>
+  <body>
+    <birrita-navbar></birrita-navbar>
+    <birrita-hero></birrita-hero>
+    <birrita-how-it-works></birrita-how-it-works>
+    <birrita-panel></birrita-panel>
+    <birrita-trust></birrita-trust>
+    <birrita-faq></birrita-faq>
+    <birrita-footer></birrita-footer>
+
+    <!-- El shell registra sus web components por su cuenta: la página se dibuja
+         aunque main.js no llegue a evaluarse (p. ej. sin red hacia esm.sh). -->
+    <script type="module" src="./components/index.js"></script>
+    <script src="./main.js" type="module"></script>
+  </body>
+</html>

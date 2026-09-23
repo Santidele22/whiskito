@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>captura del ancla estática</title>
+    <style>
+      html, body { margin: 0; background: #0b0b0b; color: #7CFC00; font: 13px/1.45 monospace; }
+      iframe { width: 1440px; height: 900px; border: 0; position: absolute; left: -10000px; top: 0; }
+      #out { white-space: pre-wrap; padding: 10px; }
+    </style>
+  </head>
+  <body>
+    <img src="/__hold__" alt="" style="position: absolute; left: -10000px" />
+    <iframe id="app"></iframe>
+    <pre id="out">capturando…</pre>
+
+    <!--
+      Herramienta de una sola vez (no es parte de la app ni del harness).
+
+      Congela el markup estático del rediseño "Blues Poster '62" en
+      `.refactor-baseline/redesign-static.html`, que es el ancla contra la que el
+      bloque F de `islands.html` compara las 5 secciones estáticas.
+
+      Por qué existe: el ancla anterior (`index.html`) es el diseño previo al
+      rediseño, y el rediseño cambia ese markup a propósito. Sin un ancla nueva,
+      F sólo podría decir "cambió el diseño" (que es lo pedido) en vez de "una
+      sección se movió después de congelada" (que es lo que F cuida).
+
+      Cómo se corre (con `serve.py` levantado):
+        firefox --headless --no-remote --profile .refactor-baseline/.ff \
+          --screenshot /tmp/x.png --window-size=300,200 \
+          "http://127.0.0.1:PORT/.refactor-baseline/capture-static.html"
+      y después se renombra lo que quedó subido:
+        mv .refactor-baseline/redesign-static.png .refactor-baseline/redesign-static.html
+
+      El `<img src="/__hold__">` retiene el evento load lo suficiente para que el
+      POST llegue antes de que Firefox saque la foto y se cierre.
+
+      Los `<script>` se reemplazan por un comentario: el ancla tiene que ser
+      markup inerte, no una segunda copia de la app corriendo dentro del iframe
+      de comparación.
+    -->
+    <script type="module">
+      const frame = document.getElementById("app");
+      const out = document.getElementById("out");
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      frame.src = "/src/index.html?cb=" + Date.now();
+
+      frame.addEventListener("load", async () => {
+        await sleep(3000); // montaje de los 9 componentes + bootstrap de main.js
+        try {
+          const doc = frame.contentDocument;
+          const crudo = "<!DOCTYPE html>\n" + doc.documentElement.outerHTML;
+          const html = crudo.replace(/<script\b[\s\S]*?<\/script>/gi, "<!-- script -->");
+          const r = await fetch("/__upload__?name=redesign-static", { method: "POST", body: html });
+          out.textContent =
+            `crudo=${crudo.length} bytes · ancla=${html.length} bytes · ` +
+            `scripts quitados=${(crudo.match(/<script/g) || []).length} · upload=${r.status} ${await r.text()}`;
+        } catch (error) {
+          out.textContent = "ERROR :: " + (error && error.message ? error.message : String(error));
+        }
+      });
+    </script>
+  </body>
+</html>

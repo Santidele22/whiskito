@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Whiskito — Invitá o recibí donaciones en ETH, directo entre wallets. Sin registro, sin comisiones, sin intermediarios. Como Cafecito, pero en blockchain."
+    />
+    <title>Whiskito — Invitame un whiskito en ETH</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" type="text/css" href="styles.css" media="screen" />
+    <script type="importmap">
+      {
+        "imports": {
+          "lucide/": "/node_modules/lucide/dist/esm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <whiskito-navbar></whiskito-navbar>
+    <whiskito-hero></whiskito-hero>
+    <whiskito-how-it-works></whiskito-how-it-works>
+    <whiskito-panel id="panel"></whiskito-panel>
+    <whiskito-trust></whiskito-trust>
+    <whiskito-faq></whiskito-faq>
+    <whiskito-footer></whiskito-footer>
+
+    <whiskito-radio></whiskito-radio>
+    <whiskito-share-card></whiskito-share-card>
+
+    <!-- Mi Panel -->
+    <whiskito-dashboard></whiskito-dashboard>
+
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>

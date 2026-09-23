@@ -1,0 +1,35 @@
+# Compiler files
+cache/
+out/
+
+# Dependencias (se reinstalan con `bun install`)
+node_modules/
+
+# Bundle de producción de Vite (generado por `bun run build`)
+/dist
+
+# Estado local del anvil y log de compilación (artefactos de desarrollo)
+state.json
+error.log
+
+# Perfiles de Firefox y logs que deja cada corrida del harness (basura de cada corrida)
+.refactor-baseline/.ff/
+.refactor-baseline/.ffhome/
+.refactor-baseline/**/*.log
+
+# Commonly ignored directories
+.logs/
+.ignore/
+
+# Ignores development broadcast logs
+!/broadcast
+/broadcast/*/31337/
+/broadcast/**/dry-run/
+
+# Docs
+docs/
+
+# Dotenv file
+.env
+.env.*
+!.env.example

@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Birrita 🍺 — Invitá o recibí donaciones en ETH, directo entre wallets. Sin registro, sin comisiones, sin intermediarios. Como Cafecito, pero en blockchain."
+    />
+    <title>🍺 Birrita — Invitame una birrita en ETH</title>
+    <link rel="stylesheet" type="text/css" href="styles.css" media="screen"></link>
+  </head>
+  <body>
+    <!-- ========== NAVBAR ========== -->
+    <nav class="navbar">
+      <div class="nav-logo">
+        <span class="logo-icon">🍺</span>
+        <span class="logo-text">Birrita</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="#donar">Donar</a></li>
+        <li><a href="#como-funciona">Cómo funciona</a></li>
+        <li><a href="#panel">Mi Panel</a></li>
+        <li><a href="#faq">Preguntas</a></li>
+      </ul>
+      <button id="connectButton" class="btn btn-primary btn-nav">
+        🦊 Conectar Wallet
+      </button>
+    </nav>
+
+    <!-- ============================================================
+     1. HERO
+     ============================================================ -->
+    <section class="hero">
+      <div class="bubbles" aria-hidden="true">
+        <span></span><span></span><span></span> <span></span><span></span
+        ><span></span>
+      </div>
+
+      <div class="hero-inner">
+        <div class="hero-copy">
+          <p class="hero-badge">
+            ⚡ Como Cafecito, pero en
+            <span
+              class="tt"
+              tabindex="0"
+              data-tip="Blockchain = un registro público y compartido donde cada movimiento queda grabado para siempre y nadie puede editarlo ni borrarlo."
+              >blockchain</span
+            >
+          </p>
+
+          <h1 class="hero-title">
+            Invitame una <span class="highlight">birrita</span> 🍺
+          </h1>
+
+          <p class="hero-subtitle">
+            Birrita es la forma más simple de decirle
+            <em>"gracias, ¡buen trabajo!"</em>
+            a quien quieras: una pequeña donación en ETH que viaja directo de tu
+            <span
+              class="tt"
+              tabindex="0"
+              data-tip="Wallet = tu cuenta de cripto. Una app gratuita (como MetaMask) que guarda tus fondos y te identifica. No necesita email ni contraseña."
+              >wallet</span
+            >
+            a la suya. Sin registrarte, sin comisiones, sin empresas en el
+            medio.
+          </p>
+
+          <div class="hero-actions">
+            <a href="#donar" class="btn btn-primary btn-lg"
+              >🍺 Quiero invitar una birra</a
+            >
+            <a href="#recibir" class="btn btn-outline btn-lg"
+              >💸 Quiero recibir donaciones</a
+            >
+          </div>
+
+          <div class="hero-trust">
+            <span><i class="tick">✓</i> 0% de comisión</span>
+            <span
+              ><i class="tick">✓</i> Directo a la wallet de quien recibe</span
+            >
+            <span><i class="tick">✓</i> Todo público y verificable</span>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-hidden="true">
+          <div class="beer-glow">🍺</div>
+
+          <div class="float-card main-card">
+            <p class="mc-label">Así se ve una birra recibida</p>
+            <div class="mc-row">
+              <div class="mc-who">
+                <div class="mc-avatar">🍺</div>
+                <div>
+                  <code>0x7a3f...9c2e</code>
+                  <p class="mc-action">te invitó una birra</p>
+                </div>
+              </div>
+              <div class="mc-amount">
+                <strong>0.0015 ETH</strong>
+                <span>≈ $5.00 USD</span>
+              </div>
+            </div>
+            <p class="mc-time">hace 2 min · confirmada ✅</p>
+          </div>
+
+          <div class="float-card chip-a">
+            ⛓️ Grabada en la blockchain, para siempre
+          </div>
+          <div class="float-card chip-b">
+            🦊 <code>0x3f...b8a1</code> conectó su wallet
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-stats">
+        <div class="stat"><b>0%</b><span>comisión de plataforma</span></div>
+        <div class="stat"><b>100%</b><span>público y verificable</span></div>
+        <div class="stat"><b>~12s</b><span>en confirmarse</span></div>
+        <div class="stat"><b>0.5 USD</b><span>mínimo por birra</span></div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+     2. CÓMO FUNCIONA — dos públicos, dos tracks
+     ============================================================ -->
+    <section class="section section--band" id="como-funciona">
+      <div class="section-head">
+        <span class="eyebrow">01 · cómo funciona</span>
+        <h2>Simple para los dos lados de la birra</h2>
+        <p>
+          Nunca usaste cripto? No importa: acá está todo explicado sin vueltas.
+          Elegí tu equipo — invitar o recibir — y seguí los tres pasos.
+        </p>
+      </div>
+
+      <!-- ---- TRACK A: RECIBIR ---- -->
+      <div class="track" id="recibir">
+        <div class="track-head">
+          <h3>💸 Querés recibir birras</h3>
+          <span
+            >para diseñadores, devs, escritores, artistas y cualquier
+            profesional</span
+          >
+        </div>
+
+        <div class="timeline">
+          <span class="timeline-dot td-1"></span>
+          <span class="timeline-dot td-2"></span>
+          <span class="timeline-dot td-3"></span>
+
+          <article class="step step-1">
+            <span class="step-ghost">01</span>
+            <div class="step-emoji">🦊</div>
+            <h4>Conectá tu wallet</h4>
+            <p>
+              Una
+              <span
+                class="tt"
+                tabindex="0"
+                data-tip="Wallet = tu cuenta de cripto. Guarda tus fondos y te identifica. La más conocida es MetaMask, gratis, como extensión de navegador."
+                >wallet</span
+              >
+              es tu cuenta de cripto: una app gratuita (como MetaMask) que
+              guarda tus fondos y te identifica. Nada de email ni contraseña: si
+              tenés la wallet, tenés la cuenta.
+            </p>
+          </article>
+
+          <article class="step step-2">
+            <span class="step-ghost">02</span>
+            <div class="step-emoji">🔗</div>
+            <h4>Copiá y compartí tu link</h4>
+            <p>
+              Al conectar tu wallet se genera tu página personal:
+              <code>birrita.app/u/tu-wallet</code>. Pegala en tu bio, tus redes
+              o tu firma de mail. ¿En persona? Compartí tu código QR y que te
+              escaneen al toque.
+            </p>
+          </article>
+
+          <article class="step step-3">
+            <span class="step-ghost">03</span>
+            <div class="step-emoji">🏧</div>
+            <h4>Retirá cuando quieras</h4>
+            <p>
+              Todo de una o en partes, vos decidís cuándo. Y tranquilo: solo
+              vos, con tu wallet, podés retirar tus fondos. Nadie más puede
+              tocarlos — ni siquiera nosotros.
+            </p>
+          </article>
+        </div>
+      </div>
+
+      <!-- ---- TRACK B: DONAR ---- -->
+      <div class="track" id="donar">
+        <div class="track-head">
+          <h3>🍺 Querés invitar una birra</h3>
+          <span>al que hizo el trabajo que te gustó</span>
+        </div>
+
+        <div class="donate-track">
+          <ul class="steps-v">
+            <li>
+              <span class="step-num">1</span>
+              <div>
+                <h4>Entrá al link de la persona</h4>
+                <p>
+                  Cada quien tiene su propia página:
+                  <code>birrita.app/u/su-wallet</code>. Ahí está todo listo para
+                  invitarle una birra.
+                </p>
+              </div>
+            </li>
+            <li>
+              <span class="step-num">2</span>
+              <div>
+                <h4>Elegí cuánto invitás</h4>
+                <p>
+                  Conectá tu wallet, poné el monto en
+                  <span
+                    class="tt"
+                    tabindex="0"
+                    data-tip="ETH = la moneda de Ethereum, la red blockchain más usada del mundo. 1 ETH ≈ unos pocos miles de dólares, pero podés donar fracciones mínimas."
+                    >ETH</span
+                  >
+                  (la moneda de Ethereum) y mirá el equivalente en dólares al
+                  lado: sabés exactamente cuánto estás invitando
+                  <strong>antes</strong> de confirmar.
+                </p>
+              </div>
+            </li>
+            <li>
+              <span class="step-num">3</span>
+              <div>
+                <h4>Confirmá y listo</h4>
+                <p>
+                  Tu donación queda grabada en la
+                  <span
+                    class="tt"
+                    tabindex="0"
+                    data-tip="Blockchain = un registro público que nadie puede editar. Cada donación queda ahí para siempre, como un recibo digital que cualquiera puede consultar."
+                    >blockchain</span
+                  >
+                  en segundos: es pública y cualquiera puede verificarla. Eso
+                  sí, en cripto no hay botón de arrepentimiento: la donación es
+                  irreversible.
+                </p>
+              </div>
+            </li>
+          </ul>
+
+          <!-- Demo card funcional-ready (IDs intactos para tu JS) -->
+          <div class="donate-card">
+            <div class="card-glow" aria-hidden="true"></div>
+
+            <h3 class="card-title">Así se ve invitar 🍻</h3>
+            <p class="card-subtitle">
+              Probalo: elegí un monto rápido o escribí el tuyo.
+            </p>
+
+            <div class="quick-amounts">
+              <button class="chip" data-usd="0.5">🥜 Birra chica</button>
+              <button class="chip" data-usd="1">🍺 Una birra</button>
+              <button class="chip" data-usd="5">🍻 Una ronda</button>
+              <button class="chip" data-usd="20">🍾 Joda completa</button>
+            </div>
+
+            <div class="input-group">
+              <label for="ehtAmount" class="input-label">Monto en ETH</label>
+              <div class="input-wrapper">
+                <span class="input-currency">Ξ</span>
+                <input
+                  type="number"
+                  id="ehtAmount"
+                  placeholder="0.0002"
+                  min="0"
+                  step="0.0001"
+                  autocomplete="off"
+                />
+                <span class="usd-equiv" id="usdEquivalent">≈ $0.00 USD</span>
+              </div>
+            </div>
+
+            <button id="fundButton" class="btn btn-primary btn-lg btn-block">
+              🍺 Invitar una Birrita
+            </button>
+
+            <div id="txStatus" class="tx-status" hidden>
+              <span class="tx-spinner" aria-hidden="true"></span>
+              <span class="tx-text" id="txText">Procesando transacción...</span>
+            </div>
+
+            <p class="card-footnote">
+              🔒 Mínimo: 0.5 USD, calculado con el precio en tiempo real de un
+              <span
+                class="tt"
+                tabindex="0"
+                data-tip="Oráculo = un servicio que trae datos del mundo real (como el precio del dólar) adentro de la blockchain, de forma confiable y verificable."
+                >oráculo</span
+              >
+              on-chain.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+     3. TU PANEL
+     ============================================================ -->
+    <section class="section" id="panel">
+      <div class="panel-split">
+        <div class="panel-copy">
+          <span class="eyebrow">02 · tu barra</span>
+          <h2>Tu panel, tus fondos, tu control 🏠</h2>
+          <p>
+            Conectás tu wallet y aparece tu barra personal. Solo ves lo tuyo:
+          </p>
+
+          <ul class="panel-points">
+            <li>
+              <span class="pp-icon">💰</span>
+              <div>
+                <b>Cuánto te donaron en total</b>
+                <span class="d"
+                  >El acumulado de todas las birras que te invitaron.</span
+                >
+              </div>
+            </li>
+            <li>
+              <span class="pp-icon">📜</span>
+              <div>
+                <b>Quién te invitó, y cuándo</b>
+                <span class="d"
+                  >Historial completo con montos y sus equivalentes en
+                  dólares.</span
+                >
+              </div>
+            </li>
+            <li>
+              <span class="pp-icon">💸</span>
+              <div>
+                <b>Cuánto tenés disponible ahora mismo</b>
+                <span class="d"
+                  >Listo para retirar, total o parcialmente, cuando se te
+                  cante.</span
+                >
+              </div>
+            </li>
+          </ul>
+
+          <div class="panel-note">
+            <span>🔐</span>
+            <p>
+              <b>Privado para operar, público para verificar.</b>
+              Retirar solo puede hacerlo el dueño de la wallet. Que los datos
+              sean públicos en la blockchain (cualquiera puede auditarlos) no
+              significa que alguien más pueda mover tus fondos. Tus birras, tus
+              reglas.
+            </p>
+          </div>
+        </div>
+
+        <!-- Mockup estático del panel -->
+        <div class="panel-demo" aria-hidden="true">
+          <span class="pd-eyebrow"
+            >💰 Balance disponible
+            <span class="pd-badge">vista previa</span></span
+          >
+          <p class="pd-balance">
+            <span id="balanceDisplay">0.0842</span>
+            <span class="balance-unit">ETH</span>
+          </p>
+          <p class="pd-usd" id="balanceUsd">≈ $269.44 USD</p>
+
+          <p class="pd-history-title">📜 Últimas birras recibidas</p>
+
+          <div id="donationsList">
+            <div class="pd-item">
+              <code>0x7a3f...9c2e</code>
+              <span class="amt">+0.005 ETH <small>≈ $16</small></span>
+              <span class="when">hace 2 min</span>
+            </div>
+            <div class="pd-item">
+              <code>0x1b9e...44f0</code>
+              <span class="amt">+0.0025 ETH <small>≈ $8</small></span>
+              <span class="when">ayer</span>
+            </div>
+            <div class="pd-item">
+              <code>0x9c21...aa77</code>
+              <span class="amt">+0.0015 ETH <small>≈ $5</small></span>
+              <span class="when">hace 3 días</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+     4. SEGURIDAD Y CONFIANZA
+     ============================================================ -->
+    <section class="section section--band">
+      <div class="trust-grid">
+        <div class="trust-head">
+          <span class="eyebrow">03 · seguridad</span>
+          <h2>Birra segura, birra feliz 🛡️</h2>
+          <p>
+            Estas garantías no son promesas de marketing: están escritas en el
+            código que maneja las birras, y nadie puede cambiarlas por detrás.
+          </p>
+        </div>
+
+        <ul class="trust-list">
+          <li>
+            <span class="trust-icon">🔐</span>
+            <div>
+              <h4>Solo el dueño toca sus fondos</h4>
+              <p>
+                El código que gestiona las birras no le permite a nadie mover tu
+                dinero: ni a otro usuario, ni a Birrita. Tu wallet es la única
+                llave que abre esa caja.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="trust-icon">🚫</span>
+            <div>
+              <h4>Mínimo: 0.5 USD por donación</h4>
+              <p>
+                Toda birra tiene un piso equivalente a medio dólar. Así se
+                evitan donaciones vacías y errores de tipeo del estilo "quería
+                poner 5 y puse 0.05".
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="trust-icon">📡</span>
+            <div>
+              <h4>Precio real, nunca viejo</h4>
+              <p>
+                La conversión ETH → dólares no la decidimos nosotros: viene de
+                un
+                <span
+                  class="tt"
+                  tabindex="0"
+                  data-tip="Oráculo = un servicio confiable que publica datos del mundo real (como precios) dentro de la blockchain, y todos pueden verificar de dónde salen."
+                  >oráculo</span
+                >
+                (una fuente de precios confiable y verificada en tiempo real).
+                Si el dato está desactualizado, la operación simplemente no se
+                hace.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="trust-icon">👁️</span>
+            <div>
+              <h4>Todo queda a la vista</h4>
+              <p>
+                Cada donación queda grabada en la blockchain: un registro
+                público que nadie puede editar ni borrar. ¿Querés comprobarlo?
+                Cada movimiento tiene su enlace a
+                <span
+                  class="tt"
+                  tabindex="0"
+                  data-tip="Etherscan = el buscador de transacciones de Ethereum. Typeás una dirección y ves todo su historial, como un extracto bancario público."
+                  >Etherscan</span
+                >, el buscador de transacciones de Ethereum.
+              </p>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============================================================
+     5. PREGUNTAS FRECUENTES
+     ============================================================ -->
+    <section class="section" id="faq">
+      <div class="faq-wrap">
+        <div class="faq-intro">
+          <span class="eyebrow" style="justify-content: center"
+            >04 · preguntas</span
+          >
+          <h2>¿Nunca usaste cripto? Empezá por acá 👇</h2>
+          <p>
+            Las dudas que todos tenemos la primera vez, respondidas sin
+            tecnicismos.
+          </p>
+        </div>
+
+        <details>
+          <summary>¿Qué es una wallet y cómo consigo una?</summary>
+          <p>
+            Una <b>wallet</b> (billetera) es una app que guarda tus
+            criptomonedas y te identifica: es tu cuenta, tu firma y tu bóveda,
+            todo en uno. La más popular es <b>MetaMask</b>: es gratis, se
+            instala como extensión de navegador (también hay para celular) y te
+            guía paso a paso al crearla. Una vez lista, volvés a Birrita, tocas
+            "Conectar Wallet" y listo: esa es tu identidad acá.
+          </p>
+        </details>
+
+        <details>
+          <summary>¿Necesito registrarme con email?</summary>
+          <p>
+            <b>No.</b> Ni email, ni contraseña, ni datos personales. Tu wallet
+            <b>es</b> tu cuenta: la conectás y ya estás adentro. Menos
+            formularios, menos contraseñas que olvidar, y ningún dato tuyo
+            guardado en nuestros servidores (porque ni siquiera los pedimos).
+          </p>
+        </details>
+
+        <details>
+          <summary>¿Qué pasa si dono por error?</summary>
+          <p>
+            Las donaciones en blockchain son <b>irreversibles</b>: una vez
+            confirmadas, no se pueden cancelar ni devolver automáticamente —
+            para nadie. Por eso la interfaz te muestra el equivalente en dólares
+            <b>antes</b> de confirmar, y tu wallet te pide confirmar de nuevo.
+            Si igual te equivocaste, lo único posible es contactar a la persona
+            y contarle: que te devuelva la birra es su decisión.
+          </p>
+        </details>
+
+        <details>
+          <summary>¿Hay algún costo aparte del monto que dono?</summary>
+          <p>
+            Birrita cobra <b>0% de comisión</b>: el 100% de tu donación llega a
+            quien la recibe. Pero existe algo llamado <b>gas</b> (una pequeña
+            tarifa que cobra la red Ethereum por procesar cada transacción — va
+            para la red, no para nosotros). Tu wallet siempre te muestra el
+            costo total antes de confirmar: sin sorpresas.
+          </p>
+        </details>
+
+        <details>
+          <summary>¿Cómo sé que el dinero llegó de verdad?</summary>
+          <p>
+            Porque queda <b>grabado en la blockchain</b>: un libro contable
+            público que nadie puede editar ni borrar. En segundos ves tu
+            donación confirmada, con un enlace a <b>Etherscan</b> (el buscador
+            de Ethereum), donde podés ver la transacción tal como quedó
+            registrada. Para siempre. Sin pedirle a nadie que te crea: está a la
+            vista de todos.
+          </p>
+        </details>
+      </div>
+    </section>
+
+    <!-- ============================================================
+     6. FOOTER
+     ============================================================ -->
+    <footer class="footer">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <div class="footer-logo">🍺 Birrita</div>
+          <p class="footer-tagline">
+            Hecho con ETH y buen rollito. No hay plataforma que se quede con tu
+            birra: el apoyo va directo de wallet a wallet.
+          </p>
+        </div>
+        <nav class="footer-links">
+          <a href="#donar">Donar</a>
+          <a href="#como-funciona">Cómo funciona</a>
+          <a href="#panel">Mi Panel</a>
+          <a href="#faq">Preguntas frecuentes</a>
+          <a href="#" target="_blank" rel="noopener"
+            >Contrato verificado en Etherscan ↗</a
+          >
+        </nav>
+      </div>
+
+      <p class="footer-warning">
+        ⚠️ <b>Importante:</b> las donaciones en cripto son irreversibles. Una
+        vez confirmada, una birra no se puede recuperar. Doná con cabeza,
+        birrero.
+      </p>
+
+      <p class="footer-copy">
+        Birrita · Donaciones en ETH para profesionales independientes · El
+        contrato es público y auditable por cualquiera
+      </p>
+    </footer>
+
+  <script src="./main.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>zoom</title>
+    <style>
+      html, body { margin: 0; background: #0b0b0b; }
+      iframe { width: 1440px; height: 900px; border: 0; display: block; }
+    </style>
+  </head>
+  <body>
+    <!-- Retiene el load para que la captura ocurra después del scroll. -->
+    <img src="/__hold__" alt="" style="position: absolute; left: -10000px" />
+    <iframe id="app"></iframe>
+    <script type="module">
+      const Q = new URLSearchParams(location.search);
+      const sel = Q.get("sel") || "#donar";
+      const alto = Number(Q.get("h") || 900);
+      const ancho = Number(Q.get("w") || 1440);
+      const frame = document.getElementById("app");
+      frame.style.width = ancho + "px";
+      frame.style.height = alto + "px";
+      frame.src = "/src/index.html?cb=" + Date.now();
+      frame.addEventListener("load", async () => {
+        const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+        // `addr=0x…` activa la tarjeta de compartir y `open=1` la despliega (el QR
+        // tarda en generarse, y el load de arriba está retenido con /__hold__, así
+        // que da tiempo a que esté dibujado cuando se saca la foto).
+        const share = frame.contentDocument.querySelector("whiskito-share-card");
+        const addr = Q.get("addr");
+        if (share && addr) {
+          share.address = addr;
+          // Estado realista de "wallet conectada": navbar y tarjeta juntos.
+          const nav = frame.contentDocument.querySelector("whiskito-navbar");
+          if (nav) {
+            nav.account = addr;
+            nav.connectionState = "connected";
+          }
+        }
+        if (share && Q.get("open")) share.open = true;
+
+        // `radio=open` despliega la radio; `radio=play` además le da play, espera
+        // a que cargue la API de YouTube y **reporta el estado real** por
+        // /__report__. Es la verificación de la cadena completa contra YouTube,
+        // que el harness no hace a propósito (no quiere red en las aserciones).
+        const modoRadio = Q.get("radio");
+        if (modoRadio) {
+          const radio = frame.contentDocument.querySelector("whiskito-radio");
+          const root = radio?.shadowRoot ?? radio;
+          root?.querySelector("#radioTrigger")?.click();
+          if (modoRadio === "play") {
+            await dormir(250);
+            root.querySelector("#radioPlay")?.click();
+            // Se reporta dos veces: a los 6 s y a los 16 s. Distingue "la
+            // inicialización todavía no terminó" de "el estado nunca se mueve".
+            await dormir(6000);
+            try { await fetch("/__report__?d=" + encodeURIComponent(`RADIO t=6s ` + resumen()), { mode: "no-cors" }); } catch (e) {}
+            await dormir(10000);
+          }
+          const iframe = root?.querySelector("iframe");
+          function resumen() {
+            return (
+              `estado=${radio?.estado} volumen=${radio?.volumen} abierto=${radio?.abierto} ` +
+              `iframes=${root?.querySelectorAll("iframe").length ?? 0} ` +
+              `scriptApi=${Boolean(frame.contentDocument.querySelector('script[src*="iframe_api"]'))}`
+            );
+          }
+          const info = `RADIO modo=${modoRadio} t=16s ` + resumen() +
+            ` src=${(root?.querySelector("iframe")?.src ?? "").slice(0, 90)}`;
+          try { await fetch("/__report__?d=" + encodeURIComponent(info), { mode: "no-cors" }); } catch (e) {}
+        }
+
+        const el = frame.contentDocument.querySelector(sel);
+        // Los hosts con `display: contents` no tienen caja: scrollIntoView sobre
+        // ellos no hace nada. Se baja al primer descendiente que sí tenga caja
+        // (los de un shadow root incluidos).
+        const conCaja = (nodo) => {
+          if (!nodo) return null;
+          if (nodo.getClientRects().length) return nodo;
+          const hijos = [...(nodo.shadowRoot ? nodo.shadowRoot.children : []), ...(nodo.children || [])];
+          return hijos.find((h) => h.getClientRects().length) || null;
+        };
+        (conCaja(el) || el)?.scrollIntoView({ block: "start", behavior: "instant" });
+      });
+    </script>
+  </body>
+</html>

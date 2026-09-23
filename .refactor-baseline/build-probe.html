@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>sonda del build</title>
+    <style>
+      html, body { margin: 0; background: #0b0b0b; color: #7CFC00; font: 13px/1.45 monospace; }
+      iframe { width: 1440px; height: 900px; border: 0; position: absolute; left: -10000px; top: 0; }
+      #out { white-space: pre-wrap; padding: 10px; }
+    </style>
+  </head>
+  <body>
+    <!-- Esta sonda se sirve DESDE dist/ (mismo origen que la app construida).
+         Retiene el load para que el navegador no termine antes del reporte. -->
+    <img src="/__hold__" alt="" style="position: absolute; left: -10000px" />
+    <iframe id="app" src="/index.html"></iframe>
+    <pre id="out">corriendo…</pre>
+
+    <script type="module">
+      const DIRECCION = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+      const results = [];
+      const check = (name, ok, extra = "") =>
+        results.push(`${ok ? "ok" : "FALLA"} ${name}${extra ? " <" + extra + ">" : ""}`);
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      const reportar = (texto) => {
+        document.getElementById("out").textContent = texto;
+        fetch("/__report__?d=" + encodeURIComponent(texto.slice(0, 4000)), { mode: "no-cors" });
+      };
+
+      try {
+        const frame = document.getElementById("app");
+        await new Promise((res) => {
+          frame.addEventListener("load", res, { once: true });
+          setTimeout(res, 15000);
+        });
+        const win = frame.contentWindow;
+        const doc = win.document;
+        await sleep(2500);
+
+        // ── A. la app construida monta ────────────────────────────────
+        const hosts = [...doc.querySelectorAll("*")].filter((e) => e.tagName.includes("-"));
+        check("B1 los 10 componentes montan", hosts.length === 10, `hosts=${hosts.length}`);
+        check(
+          "B2 cada host montado (light DOM o shadow root)",
+          hosts.every((h) => (h.shadowRoot ? h.shadowRoot.children.length >= 1 : h.children.length === 1))
+        );
+        check("B3 la app registró sus custom elements", typeof win.customElements.get("whiskito-panel") === "function");
+
+        // ── B. el bundle trae de verdad viem y lucide ─────────────────
+        const card = doc.querySelector("whiskito-donate-card");
+        const panel = doc.querySelector("whiskito-panel");
+        // Con la chain levantada son 2000; sin chain, el fallback de la app (3400).
+        check("B4 el precio es un número (viem bundleado resolvió)", Number.isFinite(card.ethPrice), `ethPrice=${card.ethPrice}`);
+        check("B5 el panel se llenó", panel.donations?.length >= 3 && Boolean(panel.balanceEth), `filas=${panel.donations?.length} balance=${panel.balanceEth}`);
+        const raices = [doc, ...hosts.map((h) => h.shadowRoot).filter(Boolean)];
+        const cuenta = (sel, host) => (host.shadowRoot ?? host).querySelectorAll(sel).length;
+        const esperado = { "whiskito-navbar": 3, "whiskito-donate-card": 6, "whiskito-panel": 6, "whiskito-share-card": 15 };
+        const porIsla = Object.entries(esperado).map(([t, n]) => `${t}=${cuenta("svg.icon", doc.querySelector(t))}/${n}`).join(" ");
+        const light = doc.querySelectorAll("svg.icon").length;
+        check(
+          "B6 Lucide hidrató todos los iconos",
+          Object.entries(esperado).every(([t, n]) => cuenta("svg.icon", doc.querySelector(t)) === n) && light === 16,
+          `${porIsla} light=${light}/16`
+        );
+        check("B7 no quedó ningún marcador sin hidratar",
+          raices.flatMap((r) => [...r.querySelectorAll("i[data-lucide]")]).length === 0);
+
+        // ── C. el QR: lo dibuja el `qrcode` bundleado (CommonJS) ──────
+        const share = doc.querySelector("whiskito-share-card");
+        share.open = true;
+        share.address = DIRECCION;
+        await sleep(1800); // import dinámico + dibujo
+        const qrCanvas = (share.shadowRoot ?? share).querySelector("#qrCanvas");
+        const pixeles = qrCanvas ? qrCanvas.getContext("2d").getImageData(0, 0, qrCanvas.width, qrCanvas.height).data : [];
+        const oscuros = pixeles.filter((v, i) => i % 4 === 0 && v < 128).length;
+        check("C1 el QR se dibujó en el canvas", oscuros > 0, `canvas=${qrCanvas?.width}x${qrCanvas?.height} oscuros=${oscuros}`);
+        const subido = await (async () => {
+          try {
+            const blob = await (await fetch(qrCanvas.toDataURL("image/png"))).blob();
+            return (await fetch("/__upload__?name=build-qr", { method: "POST", body: blob })).status;
+          } catch (e) {
+            return "error " + e.message;
+          }
+        })();
+        check("C2 el PNG se subió para decodificar afuera", subido === 200, `status=${subido}`);
+
+        // ── D. la prueba de fuego: ¿la página de dist/ toca la CDN? ────
+        const recursos = win.performance.getEntriesByType("resource").map((r) => r.name);
+        const cdn = recursos.filter((u) => /esm\.sh|unpkg|jsdelivr|cdn\./.test(u));
+        check("D1 la app construida no pidió NADA a una CDN de JS", cdn.length === 0, `cdn=${cdn.join(",") || "ninguna"} recursos=${recursos.length}`);
+        // El `importmap` sigue en el HTML (Vite no lo interpreta): si el bundle
+        // no dejó ningún especificador bare, el navegador no debe pedir nada por ahí.
+        const porImportmap = recursos.filter((u) => u.includes("/node_modules/"));
+        check("D2 el importmap residual quedó inerte (0 pedidos a /node_modules/)", porImportmap.length === 0, `pedidos=${porImportmap.join(",") || "ninguno"}`);
+        const locales = recursos.filter((u) => u.startsWith(location.origin)).length;
+        check("D3 y sí pidió sus propios assets", locales >= 2, `origen=${locales}/${recursos.length}`);
+
+        const fallas = results.filter((r) => r.startsWith("FALLA"));
+        const veredicto = fallas.length
+          ? `FALLOS(${fallas.length}/${results.length}) :: ` + fallas.join(" ;; ")
+          : `OK(${results.length}/${results.length}) :: el build arranca y no depende de la CDN`;
+        reportar(veredicto + " ;; " + results.join(" | "));
+      } catch (error) {
+        reportar("ERROR :: " + (error?.message ?? String(error)));
+      }
+    </script>
+  </body>
+</html>

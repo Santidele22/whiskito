@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>harness islas reactivas</title>
+    <style>
+      html, body { margin: 0; background: #0b0b0b; color: #7CFC00; font: 13px/1.45 monospace; }
+      iframe { width: 1440px; height: 900px; border: 0; background: #fff; position: absolute; left: -10000px; top: 0; }
+      #out { white-space: pre-wrap; padding: 10px; }
+    </style>
+  </head>
+  <body>
+    <img src="/__hold__" alt="" style="position: absolute; left: -10000px" />
+    <iframe id="nuevo"></iframe>
+    <iframe id="original"></iframe>
+    <pre id="out">corriendo…</pre>
+
+    <script type="module">
+      import { NETWORKS } from "../src/js/config.js";
+      const CONTRATO = NETWORKS[31337].fund; // el harness conoce la dirección del contrato
+      const CB = "?cb=" + Date.now();
+      const frameNuevo = document.getElementById("nuevo");
+      const frameOriginal = document.getElementById("original");
+      frameNuevo.src = "/src/index.html" + CB;
+      frameOriginal.src = "/.refactor-baseline/redesign-static.html" + CB;
+
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const NORM = (s) => String(s).replace(/\s+/g, " ").trim();
+
+      // Oráculo del harness: lee balances(address) DIRECTO de la chain, sin
+      // pasar por la app. Así se compara lo que muestra la UI contra la fuente,
+      // y no contra un número que el propio test deja de valer al correr.
+      const CONTRATO_JS = (await import("../src/js/config.js")).NETWORKS[31337].fund;
+      const saldoOnChain = async (address) => {
+        const r = await fetch("http://127.0.0.1:8545", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0", id: 1, method: "eth_call",
+            params: [{ to: CONTRATO_JS, data: "0x27e235e3" + address.slice(2).padStart(64, "0") }, "latest"],
+          }),
+        });
+        const hex = (await r.json()).result;
+        const wei = hex && hex !== "0x" ? BigInt(hex) : 0n;
+        const entero = wei / 10n ** 18n;
+        const dec = (wei % 10n ** 18n).toString().padStart(18, "0").replace(/0+$/, "");
+        return dec ? `${entero}.${dec}` : `${entero}`;
+      };
+
+      const results = [];
+      const check = (name, ok, extra = "") => results.push({ name, ok: Boolean(ok), extra });
+      const eq = (name, actual, expected) =>
+        check(name, Object.is(actual, expected) || NORM(actual) === NORM(expected), `obtuve «${actual}», esperaba «${expected}»`);
+      const near = (name, actual, expected, eps = 0.0000005) =>
+        check(name, Math.abs(Number(actual) - expected) <= eps, `obtuve ${actual}, esperaba ≈${expected}`);
+
+      function whenLoaded(frame) {
+        return new Promise((res) => {
+          if (frame.contentDocument && frame.contentDocument.readyState === "complete") return res();
+          frame.addEventListener("load", () => res(), { once: true });
+          setTimeout(res, 15000);
+        });
+      }
+
+      // Serializa ignorando formato; los hosts de web components se desenvuelven y
+      // el subárbol dinámico se enmascara para poder comparar lo estático.
+      function ser(node, mask) {
+        if (node.nodeType === 3) {
+          const t = node.textContent.replace(/\s+/g, " ");
+          return t.trim() === "" ? "" : t;
+        }
+        if (node.nodeType !== 1) return "";
+        const tag = node.tagName.toLowerCase();
+        if (mask && (tag === "whiskito-donate-card" || node.classList.contains("donate-card"))) {
+          return "<x-masked></x-masked>";
+        }
+        const inner = [...node.childNodes].map((n) => ser(n, mask)).join("");
+        if (tag.includes("-")) return inner;
+        const attrs = [...node.attributes]
+          .map((a) => `${a.name}="${a.value.replace(/\s+/g, " ")}"`)
+          .sort()
+          .join(" ");
+        return `<${tag}${attrs ? " " + attrs : ""}>${inner}</${tag}>`;
+      }
+
+      const typeInto = (input, value) => {
+        input.value = value;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+
+      (async () => {
+        await Promise.all([whenLoaded(frameNuevo), whenLoaded(frameOriginal)]);
+        await sleep(2500); // montaje + bootstrap de main.js
+
+        try {
+          const win = frameNuevo.contentWindow;
+          const doc = win.document;
+          const origWin = frameOriginal.contentWindow;
+          const origDoc = origWin.document;
+
+          const card = doc.querySelector("whiskito-donate-card");
+          const navbar = doc.querySelector("whiskito-navbar");
+          const panel = doc.querySelector("whiskito-panel");
+          const cardRoot = card.shadowRoot ?? card;
+          const navRoot = navbar.shadowRoot ?? navbar;
+          const panelRoot = panel.shadowRoot ?? panel;
+          const input = cardRoot.querySelector("#ehtAmount");
+          const usd = cardRoot.querySelector("#usdEquivalent");
+          const fund = cardRoot.querySelector("#fundButton");
+          // El chip de 5 USD tiene que pedir 5/precio ETH: la cuenta la hace la isla.
+          const ethDe = (usd) => String(Math.ceil((usd / card.ethPrice) * 1e6) / 1e6);
+          const txStatus = cardRoot.querySelector("#txStatus");
+          const txText = cardRoot.querySelector("#txText");
+          const hint = cardRoot.querySelector("#cardHint");
+          const chips = [...cardRoot.querySelectorAll(".chip")];
+          const connect = navRoot.querySelector("#connectButton");
+          // El botón contiene el label Y el chip de la dirección: se mira sólo el label.
+          const etiqueta = () => NORM(connect.querySelector("span[data-text]").textContent);
+          const navAccount = navRoot.querySelector(".nav-account");
+          const balance = panelRoot.querySelector("#balanceDisplay");
+          const balanceUsd = panelRoot.querySelector("#balanceUsd");
+          const empty = panelRoot.querySelector(".r-empty");
+          const rows = () => [...panelRoot.querySelectorAll("#donationsList .r-item")];
+
+          // ── A. Montaje y datos inyectados por main.js ──────────────
+          const hosts = [...doc.querySelectorAll("*")].filter((e) => e.tagName.includes("-"));
+          check("A1 montados los 11 componentes", hosts.length === 11, `hosts=${hosts.length}`);
+          check("A2 cada host montado: contenido en light DOM o en su shadow root",
+            hosts.every((h) => (h.shadowRoot ? h.shadowRoot.children.length >= 1 : h.children.length === 1)),
+            hosts.map((h) => `${h.tagName}:${h.shadowRoot ? "shadow" : h.children.length}`).join(" "));
+          check("A3 elementos nuevos: hint/nav-account/pd-empty", Boolean(hint && navAccount && empty));
+          // El precio lo lee main.js del contrato: con el MockV3Aggregator del
+          // deploy local son 2000 USD. Si esto diera 3400, estaría usando el
+          // valor de ejemplo (o sea: no llegó a la chain).
+          const PRECIO = card.ethPrice;
+          check("A4 el precio viene de la chain", PRECIO === 2000, `ethPrice=${PRECIO}`);
+          check("A4b el precio NO es el de ejemplo (no cayó en el fallback)", PRECIO !== 3400, `ethPrice=${PRECIO}`);
+
+          check("A5 main.js inyectó donaciones", panel.donations.length === 3, `len=${panel.donations.length}`);
+          eq("A6 el panel pintó las 3 filas", rows().length, 3);
+          eq("A7 balance pintado", balance.textContent, "0.0842");
+          eq("A8 balance en USD pintado", balanceUsd.textContent, "≈ $269.44 USD");
+
+          // ── F. Las secciones estáticas no derivaron ───────────────
+          // Ancla: `redesign-static.html`, copia CONGELADA del markup estático
+          // tal como quedó con el rediseño "Blues Poster '62". El ancla anterior
+          // (`index.html`, el diseño previo al rediseño) quedó obsoleta a propósito: el
+          // rediseño cambia el markup de las 5 secciones, así que comparar contra
+          // ella sólo diría "cambió el diseño", que es lo que se pidió. Lo que
+          // esta comparación sigue cuidando es que una sección estática no se
+          // mueva DESPUÉS de congelada.
+          // Se emparejan por un selector propio de cada sección: agregar
+          // secciones nuevas no tiene que romper esta comparación.
+          const ESTATICAS = [
+            ["F1 hero", "whiskito-hero .hero", ".hero"],
+            ["F2 cómo funciona (sin la tarjeta)", "whiskito-how-it-works #como-funciona", "#como-funciona"],
+            ["F3 seguridad", "whiskito-trust .trust-grid", ".trust-grid"],
+            ["F4 preguntas", "whiskito-faq #faq", "#faq"],
+            ["F5 footer", "whiskito-footer .footer", ".footer"],
+          ];
+          for (const [name, selNuevo, selViejo] of ESTATICAS) {
+            const elNuevo = doc.querySelector(selNuevo);
+            const elViejo = origDoc.querySelector(selViejo);
+            const a = elNuevo ? ser(elNuevo, true) : "(no está)";
+            const b = elViejo ? ser(elViejo, true) : "(no está)";
+            const distinto = [...a].findIndex((c, k) => c !== b[k]);
+            check(name, a === b, a === b ? "" : `distinto en ${distinto} :: A=${a.slice(0, 80)} B=${b.slice(0, 80)}`);
+          }
+
+          // ── B. Isla de donación ───────────────────────────────────
+          eq("B1 equivalente inicial", usd.textContent, "≈ $0.00 USD");
+          check("B2 botón deshabilitado sin monto", fund.disabled === true);
+          check("B3 estado de tx oculto", txStatus.hidden === true);
+          check("B4 hint oculto", hint.hidden === true);
+          check("B5 chips habilitados (hay precio)", chips.every((c) => !c.disabled));
+
+          typeInto(input, "0.001");
+          eq("B6 equivalente al tipear 0.001", usd.textContent, `≈ $${(0.001 * PRECIO).toFixed(2)} USD`);
+          check("B7 botón habilitado con monto válido", fund.disabled === false);
+          eq("B8 el atributo es el estado", card.getAttribute("amount"), "0.001");
+
+          chips.find((c) => c.dataset.usd === "5").click();
+          eq("B9 chip de 5 USD → ETH redondeado hacia arriba", card.amount, ethDe(5));
+          eq("B10 el input refleja el estado", input.value, ethDe(5));
+          check("B11 chip activo", chips.find((c) => c.dataset.usd === "5").classList.contains("is-active"));
+          check("B12 sólo un chip activo", chips.filter((c) => c.classList.contains("is-active")).length === 1);
+
+          chips.find((c) => c.dataset.usd === "0.5").click();
+          eq("B13 chip de 0.5 USD → mínimo exacto", card.amount, ethDe(0.5));
+          check("B14 con el mínimo no avisa", hint.hidden === true && fund.disabled === false);
+
+          typeInto(input, "0.00001");
+          check("B15 bajo el mínimo deshabilita", fund.disabled === true);
+          check("B16 bajo el mínimo muestra el hint", hint.hidden === false);
+          check("B17 el hint explica el mínimo",
+            NORM(hint.textContent) === `El mínimo es 0.50 USD ≈ ${ethDe(0.5)} ETH`, NORM(hint.textContent));
+
+          let amountEvent = null;
+          doc.addEventListener("whiskito:amount-change", (e) => { amountEvent = e.detail; });
+          typeInto(input, "0.002");
+          check("B18 emite whiskito:amount-change", amountEvent !== null);
+          near("B19 detail.amount", amountEvent?.amount, 0.002);
+          near("B20 detail.usd", amountEvent?.usd, 0.002 * PRECIO);
+
+          let fundEvent = null;
+          doc.addEventListener(
+            "whiskito:fund-request",
+            (e) => {
+              fundEvent = e.detail;
+              e.stopPropagation(); // aísla esta aserción del flujo real de main.js
+            },
+            { capture: true, once: true }, // una sola vez: el test E necesita el flujo real
+          );
+          fund.click();
+          check("B21 emite whiskito:fund-request", fundEvent !== null);
+          near("B22 detail.usd del pedido", fundEvent?.usd, 0.002 * PRECIO);
+
+          card.removeAttribute("eth-price");
+          check("B23 sin precio los chips quedan inertes", chips.every((c) => c.disabled === true));
+          card.ethPrice = PRECIO; // se restaura el que se leyó de la chain
+          check("B24 vuelve el precio y se reactivan", chips.every((c) => !c.disabled));
+
+          card.status = "pending";
+          check("B25 pending muestra el estado", txStatus.hidden === false);
+          eq("B26 texto por defecto de pending", txText.textContent, "Procesando transacción...");
+          check("B27 pending deshabilita el botón", fund.disabled === true);
+          card.status = "success";
+          card.message = "listo";
+          eq("B28 message manda sobre el texto por defecto", txText.textContent, "listo");
+          check("B29 clase tx-success", txStatus.classList.contains("tx-success"));
+          card.message = "";
+          eq("B30 texto por defecto de success", txText.textContent, "¡Whiskito enviado!");
+          card.status = "error";
+          check("B31 clase tx-error", txStatus.classList.contains("tx-error") && !txStatus.classList.contains("tx-success"));
+          card.status = "idle";
+          check("B32 vuelve a ocultarse", txStatus.hidden === true);
+
+          // ── C. Isla del navbar ────────────────────────────────────
+          eq("C1 label inicial", etiqueta(), "Conectar Wallet");
+          check("C2 sin dirección, el chip está oculto", navAccount.hidden === true);
+          check("C3 botón habilitado", connect.disabled === false);
+
+          connect.click();
+          await sleep(400);
+          eq("C4 sin wallet → estado unsupported", navbar.connectionState, "unsupported");
+          eq("C5 label de unsupported", etiqueta(), "Sin wallet detectada");
+          check("C6 title explicativo", NORM(connect.getAttribute("title")) === "No detectamos una wallet en este navegador");
+
+          navbar.connectionState = "connecting";
+          eq("C7 label de connecting", etiqueta(), "Conectando…");
+          check("C8 connecting deshabilita el botón", connect.disabled === true);
+
+          navbar.account = "0x7a3f111122223333444455556666777788889c2e";
+          navbar.connectionState = "connected";
+          eq("C9 label de connected", etiqueta(), "Conectado");
+          check("C10 el chip de la dirección se muestra", navAccount.hidden === false);
+          eq("C11 dirección acortada", NORM(navAccount.textContent), "0x7a3f...9c2e");
+          check("C12 sin title cuando no hace falta", !connect.hasAttribute("title"));
+
+          // ── C13-C19. Desconectar ──────────────────────────────────
+          const desconectar = navRoot.querySelector("#disconnectButton");
+          const tarjeta = doc.querySelector("whiskito-share-card");
+          check("C13 conectado: aparece el botón de desconectar",
+            Boolean(desconectar) && desconectar.hidden === false, `hidden=${desconectar?.hidden}`);
+
+          let conexionesPedidas = 0;
+          doc.addEventListener("whiskito:connect-request", () => conexionesPedidas++, true);
+          connect.click();
+          await sleep(150);
+          check("C14 conectado: el botón de conectar no vuelve a pedir conexión",
+            conexionesPedidas === 0, `eventos=${conexionesPedidas}`);
+
+          // Se deja la isla de compartir activa y abierta, como quedaría tras
+          // conectar de verdad, para comprobar que desconectar deshace TODO.
+          tarjeta.address = "0x7a3f111122223333444455556666777788889c2e";
+          tarjeta.open = true;
+          await sleep(400);
+
+          let desconexiones = 0;
+          doc.addEventListener("whiskito:disconnect-request", () => desconexiones++, true);
+          desconectar.click();
+          await sleep(600);
+          check("C15 desconectar emite su evento", desconexiones === 1, `eventos=${desconexiones}`);
+          check("C16 main.js deshace el estado de conexión",
+            navbar.connectionState === "disconnected" && navbar.account === "",
+            `state=${navbar.connectionState} account="${navbar.account}"`);
+          check("C17 al desconectar, la tarjeta de compartir se bloquea y se cierra",
+            tarjeta.address === "" && tarjeta.open === false,
+            `address="${tarjeta.address}" open=${tarjeta.open}`);
+          check("C18 al desconectar, el panel vuelve al preview",
+            panel.donations.length === 3 && panelRoot.querySelectorAll("#donationsList .r-item").length === 3,
+            `donations=${panel.donations.length} filas=${panelRoot.querySelectorAll("#donationsList .r-item").length}`);
+          check("C19 desconectado: el botón de desconectar se esconde",
+            desconectar.hidden === true, `hidden=${desconectar.hidden}`);
+
+          // ── D. Isla del panel ─────────────────────────────────────
+          const guardadas = panel.donations;
+          panel.donations = [];
+          eq("D1 sin donaciones no hay filas", rows().length, 0);
+          check("D2 estado vacío visible", empty.hidden === false);
+          panel.donations = guardadas;
+          eq("D3 vuelven las filas", rows().length, 3);
+          check("D4 estado vacío oculto", empty.hidden === true);
+          panel.balanceEth = "1.5";
+          eq("D5 balance reactivo", balance.textContent, "1.5");
+          panel.balanceEth = "0.0842";
+
+          // ── E. Integración end-to-end (modo demo, que es el default) ──
+          // Por si el perfil de Firefox quedó con el cuaderno de una versión
+          // anterior que sí lo usaba: la demo no tiene que dejar nada.
+          win.localStorage.removeItem("whiskito:demo-ledger:v1");
+          typeInto(input, "0.001");
+          fund.click();
+          eq("E1 el click deja la tarjeta en pending", card.status, "pending");
+          await sleep(2200);
+          eq("E2 el adaptador la deja en success", card.status, "success");
+          check("E3 el mensaje dice demo y NO dice on-chain",
+            /demo/i.test(NORM(txText.textContent)) && !/on-chain/i.test(NORM(txText.textContent)),
+            NORM(txText.textContent));
+          // La donación demo NO es plata que entró: el resumen del panel es la
+          // verdad de la chain y no la puede sumar (antes la sumaba, y así una
+          // prueba simulada quedaba mostrada como una donación real).
+          eq("E4 el panel NO sumó la donación demo", rows().length, 3);
+          eq("E5 y el balance siguió igual", balance.textContent, "0.0842");
+          eq("E6 ni el equivalente en dólares", balanceUsd.textContent, "≈ $269.44 USD");
+
+          // ── S. Shadow DOM: qué encapsula y qué no ─────────────────
+          // La isla de compartir se comprueba aparte en H1; la radio entra acá.
+          const islas = { tarjeta: card, navbar, panel, radio: doc.querySelector("whiskito-radio") };
+          const estaticas = ["whiskito-hero", "whiskito-how-it-works", "whiskito-trust", "whiskito-faq", "whiskito-footer"];
+          const largoCss = (el) => el.shadowRoot?.querySelector("style")?.textContent.trim().length ?? 0;
+          check("S1 las 4 islas viven en un shadow root", Object.values(islas).every((el) => el.shadowRoot),
+            Object.entries(islas).map(([n, el]) => `${n}:${Boolean(el.shadowRoot)}`).join(" "));
+          check("S2 las 5 estáticas siguen en light DOM", estaticas.every((t) => !doc.querySelector(t).shadowRoot));
+          check("S3 cada isla lleva su CSS adentro", Object.values(islas).every((el) => largoCss(el) > 200),
+            Object.entries(islas).map(([n, el]) => `${n}:${largoCss(el)}`).join(" "));
+          check("S4 el markup de las islas ya no está en el documento",
+            !doc.querySelector("#ehtAmount") && !doc.querySelector("#connectButton") && !doc.querySelector("#donationsList"));
+          check("S5 los ids se resuelven por el shadow root",
+            Boolean(cardRoot.querySelector("#ehtAmount") && navRoot.querySelector("#connectButton") && panelRoot.querySelector("#donationsList")));
+
+          // Los tokens de :root atraviesan la frontera (las custom properties se heredan)
+          const sonda = doc.createElement("span");
+          sonda.style.cssText = "display:none;color:var(--paper)";
+          doc.body.append(sonda);
+          const tokenResuelto = win.getComputedStyle(sonda).color;
+          sonda.remove();
+          const chipDe5 = chips.find((c) => c.dataset.usd === "5");
+          chipDe5.click();
+          await sleep(350); // `.chip` tiene transition: all 0.2s; sin esperar se lee el color interpolado
+          const colorActivo = win.getComputedStyle(chipDe5).color;
+          check("S6 el chip activo resuelve var(--paper) de :root", colorActivo === tokenResuelto, `${colorActivo} vs ${tokenResuelto}`);
+
+          // El CSS del documento NO entra al shadow root
+          const intruso = doc.createElement("style");
+          intruso.textContent = ".card-title { color: rgb(1, 2, 3) !important; }";
+          doc.head.append(intruso);
+          const colorTitulo = win.getComputedStyle(cardRoot.querySelector(".card-title")).color;
+          check("S7 el CSS del documento no atraviesa el shadow root", colorTitulo !== "rgb(1, 2, 3)", colorTitulo);
+          intruso.remove();
+
+          // El CSS de la isla NO se filtra hacia el documento
+          const caja = doc.createElement("div");
+          caja.style.display = "none";
+          const suelto = doc.createElement("div");
+          suelto.className = "chip";
+          caja.append(suelto);
+          doc.body.append(caja);
+          const estiloSuelto = win.getComputedStyle(suelto);
+          const fondoSuelto = estiloSuelto.backgroundColor;
+          const radioSuelto = estiloSuelto.borderRadius;
+          caja.remove();
+          check("S8 el CSS de la isla no se filtra al documento",
+            fondoSuelto === "rgba(0, 0, 0, 0)" && radioSuelto === "0px", `fondo=${fondoSuelto} radio=${radioSuelto}`);
+
+          // El navbar sigue sticky (display:contents + shadow root)
+          win.scrollTo({ top: 1500, behavior: "instant" });
+          await sleep(150);
+          const navTop = Math.round(navRoot.querySelector(".navbar").getBoundingClientRect().top);
+          check("S9 el navbar sigue pegado al scrollear", Math.abs(navTop) <= 1, `top=${navTop}`);
+
+          // El ancla #panel sobrevive (el id vive en el host, en el documento)
+          check("S10 getElementById('panel') encuentra el host", doc.getElementById("panel") === panel);
+          win.location.hash = "#panel";
+          await sleep(800);
+          const y = Math.round(win.scrollY);
+          check("S11 el ancla #panel scrollea", y > 100, `scrollY=${y}`);
+          win.location.hash = "";
+          win.scrollTo({ top: 0, behavior: "instant" });
+          await sleep(100);
+
+          // Experimento para la lección: ¿el ancla funcionaría con display:contents?
+          panel.style.display = "contents";
+          win.location.hash = "#panel";
+          await sleep(800);
+          const yConContents = Math.round(win.scrollY);
+          panel.style.removeProperty("display");
+          win.location.hash = "";
+          win.scrollTo({ top: 0, behavior: "instant" });
+          await sleep(100);
+
+          // Geometría de las islas. Las referencias absolutas del diseño previo
+          // al rediseño (508x647 · panelY 3022 · nav 79 · panel 590x513) se retiraron con el
+          // rediseño "Blues Poster '62": volver a medirlas sólo re-codificaría el
+          // diseño nuevo como golden de píxeles, y encima no son estables (la
+          // altura del recibo depende de cuántas donaciones inyecta main.js, y el
+          // ancho baila con la barra de scroll). Lo que estas aserciones cuidaban
+          // de verdad, y sí se conserva, es el invariante de layout que rompería
+          // un `display` mal puesto en el host.
+          const cajaCard = cardRoot.querySelector(".donate-card").getBoundingClientRect();
+          const cajaTrack = doc.querySelector(".donate-track").getBoundingClientRect();
+          const cajaNav = navRoot.querySelector(".navbar").getBoundingClientRect();
+          const cajaPanel = panelRoot.querySelector(".receipt").getBoundingClientRect();
+          check("S12 el host de la tarjeta no genera caja y la tarjeta sigue siendo el grid item",
+            card.getClientRects().length === 0 &&
+              cajaCard.width >= 300 && cajaCard.height >= 300 &&
+              cajaCard.left > cajaTrack.left + 1 && cajaCard.right <= cajaTrack.right + 1,
+            `hostRects=${card.getClientRects().length} card=${Math.round(cajaCard.width)}x${Math.round(cajaCard.height)} track=${Math.round(cajaTrack.width)}`);
+          check("S13 el navbar y el recibo del panel tienen caja propia y no degenerada",
+            cajaNav.width > 1000 && cajaNav.height > 20 &&
+              cajaPanel.width >= 300 && cajaPanel.height >= 300,
+            `nav=${Math.round(cajaNav.width)}x${Math.round(cajaNav.height)} recibo=${Math.round(cajaPanel.width)}x${Math.round(cajaPanel.height)}`);
+          check("S13a el recibo sigue viviendo dentro de la banda de tinta",
+            Boolean(panelRoot.querySelector(".backstage .panel-split .receipt")),
+            "recibo dentro de .backstage > .panel-split");
+
+          // Los @keyframes viajan con la isla: el spinner tiene que girar de verdad
+          card.status = "pending";
+          await sleep(80);
+          const spinner = cardRoot.querySelector(".tx-spinner");
+          const t1 = spinner ? win.getComputedStyle(spinner).transform : "sin spinner";
+          await sleep(140);
+          const t2 = spinner ? win.getComputedStyle(spinner).transform : "sin spinner";
+          const animaciones = spinner ? spinner.getAnimations().length : 0;
+          check("S14 el spinner del pending gira (los @keyframes viajaron con la isla)",
+            t1 !== t2 && animaciones > 0, `${t1} -> ${t2} anims=${animaciones}`);
+          card.status = "success"; // mismo estado que al medir la geometría de referencia
+
+          // El CSS global tiene que seguir vivo para las secciones en light DOM
+          const heroCss = win.getComputedStyle(doc.querySelector(".hero"));
+          const seccionCss = win.getComputedStyle(doc.querySelector("#como-funciona"));
+          check("S15 el CSS global sigue aplicando a las secciones en light DOM",
+            heroCss.paddingTop === "56px" && seccionCss.maxWidth === "1200px" && seccionCss.paddingTop === "96px",
+            `hero.paddingTop=${heroCss.paddingTop} section.maxWidth=${seccionCss.maxWidth} section.paddingTop=${seccionCss.paddingTop}`);
+
+          // ── H. Isla de compartir: QR con marca y redes ────────────
+          const share = doc.querySelector("whiskito-share-card");
+          const shareRoot = share.shadowRoot ?? share;
+          const qrCanvas = shareRoot.querySelector("#qrCanvas");
+          const shareLink = shareRoot.querySelector("#shareLink");
+          const shareLocked = shareRoot.querySelector("#shareLocked");
+          const shareConnect = shareRoot.querySelector("#shareConnectButton");
+          const copyButton = shareRoot.querySelector("#copyButton");
+          const downloadButton = shareRoot.querySelector("#downloadButton");
+          const botonNativo = shareRoot.querySelector('[data-network="native"]');
+          const botonesRed = [...shareRoot.querySelectorAll("[data-network]")].filter((b) => b !== botonNativo);
+          const DIRECCION = "0x71C71C7A5B4D3E2F1A0B9C8D7E6F5A4B3C2D876F";
+          // El sitio que se comparte es el ORIGEN que sirve la página, no un
+          // dominio fijo: en la verificación es este mismo. La expectativa se
+          // deriva de `location` (no de `config.js`) para que siga siendo
+          // independiente del código que se está probando.
+          const URL_ESPERADA = globalThis.location.origin + "/u/" + DIRECCION;
+          const subirQr = async (nombre) => {
+            const blob = await (await fetch(qrCanvas.toDataURL("image/png"))).blob();
+            return (await fetch(`/__upload__?name=${nombre}`, { method: "POST", body: blob })).status;
+          };
+
+          const shareTrigger = shareRoot.querySelector("#shareTrigger");
+          const sharePanel = shareRoot.querySelector("#sharePanel");
+          const shareClose = shareRoot.querySelector("#shareClose");
+
+          check("H1 la isla de compartir vive en un shadow root", Boolean(share.shadowRoot));
+
+          // En la landing sin `?u=` no hay dueño todavía: el widget se muestra
+          // bloqueado, ofreciendo conectar para reclamar la página.
+          check("H1a en la landing sin dueño, el widget se muestra", !share.hasAttribute("hidden"),
+            `hidden=${share.hasAttribute("hidden")}`);
+          check("H1a2 y arranca bloqueado", share.address === "" && shareLocked?.hidden === false,
+            `address="${share.address}" lockedHidden=${shareLocked?.hidden}`);
+          check("H1a3 con el link de ejemplo", NORM(shareLink.textContent).includes("whiskito.app/u/tu-wallet"),
+            NORM(shareLink.textContent));
+          check("H1a4 y compartir deshabilitado", botonesRed.every((b) => b.disabled),
+            botonesRed.map((b) => b.disabled).join(","));
+
+          // ── Pasar a modo DUEÑO ────────────────────────────────────────
+          // Se le instala a la página una wallet falsa. viem le habla por
+          // `custom(window.ethereum)`, así que alcanza con responder los métodos
+          // JSON-RPC que usa: es la forma de probar conectar y retirar sin
+          // MetaMask, contra la chain real para las lecturas.
+          const DUEÑO = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8";
+          const pedidos = [];
+          win.ethereum = {
+            request: async ({ method, params }) => {
+              pedidos.push({ method, params });
+              if (method === "eth_requestAccounts" || method === "eth_accounts") return [DUEÑO];
+              if (method === "eth_chainId") return "0x7a69"; // 31337
+              if (method === "wallet_revokePermissions") return null;
+              if (method === "eth_sendTransaction") {
+                // anvil tiene las cuentas desbloqueadas: reenviamos la
+                // transacción a la chain, así el hash es REAL y el recibo que
+                // espera el cliente de lectura existe de verdad.
+                const r = await fetch("http://127.0.0.1:8545", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+                });
+                return (await r.json()).result;
+              }
+              if (method === "eth_blockNumber") return "0x2";
+              if (method === "eth_getTransactionReceipt") {
+                return {
+                  transactionHash: "0x" + "ab".repeat(32),
+                  transactionIndex: "0x0",
+                  blockHash: "0x" + "cd".repeat(32),
+                  blockNumber: "0x1",
+                  from: DUEÑO,
+                  to: CONTRATO,
+                  cumulativeGasUsed: "0x5208",
+                  gasUsed: "0x5208",
+                  contractAddress: null,
+                  logs: [],
+                  logsBloom: "0x" + "00".repeat(256),
+                  status: "0x1",
+                  effectiveGasPrice: "0x1",
+                  type: "0x2",
+                };
+              }
+              throw new Error("método no esperado: " + method);
+            },
+          };
+          // El test se prepara su propio estado: manda una donación real a la
+          // cuenta del dueño. El stub la reenvía a anvil (cuentas desbloqueadas).
+          // Sin esto, la corrida siguiente no tendría nada que retirar.
+          const DONANTE_ANVIL = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"; // cuenta 0
+          await win.ethereum.request({
+            method: "eth_sendTransaction",
+            params: [{
+              from: DONANTE_ANVIL,
+              to: CONTRATO,
+              data: "0x23024408" + DUEÑO.slice(2).padStart(64, "0"), // fund(DUEÑO)
+              value: "0x2386f26fc10000", // 0.01 ETH
+            }],
+          });
+          await sleep(900);
+
+          navRoot.querySelector("#connectButton").click();
+          await sleep(1500); // conecta, resuelve la red y lee el portfolio
+
+          check("H1b al conectar como dueño, aparece el widget de compartir", !share.hasAttribute("hidden"),
+            `hidden=${share.hasAttribute("hidden")}`);
+          check("H1c y se abre solo (es cuando tiene algo para compartir)", sharePanel?.hidden === false,
+            `hidden=${sharePanel?.hidden}`);
+          check("H1d el widget está fijo abajo a la derecha",
+            Boolean(shareTrigger) && win.getComputedStyle(shareTrigger).position === "fixed",
+            `position=${shareTrigger ? win.getComputedStyle(shareTrigger).position : "sin trigger"}`);
+          const cajaTrigger0 = shareTrigger.getBoundingClientRect();
+          const cajaPanel0 = sharePanel.getBoundingClientRect();
+          check("H1e el trigger cae dentro de la ventana",
+            cajaTrigger0.width > 0 && cajaTrigger0.bottom <= win.innerHeight + 1 && cajaTrigger0.right <= win.innerWidth + 1,
+            `trigger=${Math.round(cajaTrigger0.left)},${Math.round(cajaTrigger0.top)} ${Math.round(cajaTrigger0.width)}x${Math.round(cajaTrigger0.height)} ventana=${win.innerWidth}x${win.innerHeight}`);
+
+          shareClose.click();
+          await sleep(300);
+          // ── Retirar: sólo el dueño, y hay que FIRMAR ──────────────────
+          const withdrawButton = panelRoot.querySelector("#withdrawButton");
+          check("H1h como dueño aparece el botón de retirar",
+            Boolean(withdrawButton) && withdrawButton.hidden === false, `hidden=${withdrawButton?.hidden}`);
+          // En esta chain el dueño ya recibió una donación real de prueba: el
+          // panel tiene que estar mostrando ESO, leído del contrato y del evento.
+          const saldoReal = await saldoOnChain(DUEÑO);
+          check("H1h2 el panel muestra el mismo saldo que dice la chain",
+            panel.balanceEth === saldoReal, `panel=${panel.balanceEth} chain=${saldoReal}`);
+          // La lista crece: cada corrida dona de verdad y los eventos de la
+          // chain quedan para siempre (el retiro devuelve el ETH, no el
+          // historial). Así que se verifica la fila MÁS NUEVA, no el total.
+          check("H1h3 y la fila más nueva es la donación que acaba de entrar",
+            panel.donations.length >= 1 && panel.donations[0].eth === "0.01" &&
+              panel.donations[0].usd === "20.00" &&
+              panel.donations[0].address.toLowerCase() === "0xf39f...2266", // la chain la devuelve con checksum
+            `filas=${panel.donations.length} ${JSON.stringify(panel.donations[0])}`);
+          check("H1i con saldo, el botón de retirar queda habilitado", withdrawButton.disabled === false,
+            `disabled=${withdrawButton.disabled}`);
+
+          withdrawButton.click();
+          await sleep(3500); // firma + recibo real de anvil
+          const firmas = pedidos.filter(
+            (p) => p.method === "eth_sendTransaction" && p.params?.[0]?.data === "0x853828b6", // withdrawAll()
+          );
+          check("H1k el retiro se firma contra el contrato",
+            firmas.length === 1 && firmas[0].params?.[0]?.to?.toLowerCase() === CONTRATO.toLowerCase(),
+            `tx=${firmas.length} to=${firmas[0]?.params?.[0]?.to}`);
+          check("H1l y llama a withdrawAll()", firmas[0]?.params?.[0]?.data === "0x853828b6",
+            `data=${firmas[0]?.params?.[0]?.data}`);
+          check("H1m2 y el saldo de la chain volvió a cero", panel.balanceEth === "0",
+            `balance=${panel.balanceEth} ETH`);
+          check("H1m la UI reporta el retiro", panel.withdrawStatus === "success",
+            `status=${panel.withdrawStatus} msg="${panel.withdrawMessage}" · métodos=${[...new Set(pedidos.map((p) => p.method))].join(",")} · recibos=${pedidos.filter((p) => p.method === "eth_getTransactionReceipt").length}`);
+
+          // ── A4 un SEGUNDO retiro no puede reportar éxito ───────────────
+          // Ya retirado, la chain no tiene nada para `balances[msg.sender]`:
+          // cualquier segundo intento que llegue al camino de escritura tiene
+          // que terminar en "error", nunca en "¡Retirado!" con el saldo intacto.
+          const firmasDeRetiro = () => pedidos.filter(
+            (p) => p.method === "eth_sendTransaction" && p.params?.[0]?.data === "0x853828b6").length;
+          check("A4-1 tras el retiro el panel quedó en 0 y el botón deshabilitado",
+            panel.balanceEth === "0" && withdrawButton.disabled === true,
+            `balance=${panel.balanceEth} disabled=${withdrawButton.disabled}`);
+          // (a) El click tal como queda la UI: con el botón deshabilitado no hay
+          //     nada que firmar. Se pone el estado en "idle" para poder atribuirle
+          //     al click lo que pase después (si no, un "success" viejo se
+          //     confundiría con un éxito nuevo).
+          const firmasAntes = firmasDeRetiro();
+          panel.withdrawStatus = "idle";
+          panel.withdrawMessage = "";
+          withdrawButton.click();
+          await sleep(1200);
+          check("A4-2 con el botón deshabilitado el segundo click no firma ni reporta éxito",
+            firmasDeRetiro() === firmasAntes && panel.withdrawStatus !== "success" &&
+              panel.withdrawMessage !== "¡Retirado!",
+            `firmas ${firmasAntes}→${firmasDeRetiro()} status=${panel.withdrawStatus} msg="${panel.withdrawMessage}"`);
+          // (b) El caso que importa: el panel todavía muestra un saldo (UI sin
+          //     refrescar) pero la chain no tiene nada para msg.sender. Ahora el
+          //     click SÍ recorre el camino de escritura (simular → firmar →
+          //     confirmar) y el contrato revierte.
+          panel.balanceEth = "0.01";
+          await sleep(200);
+          check("A4-3 con el panel mostrando saldo el botón vuelve a estar clickeable",
+            withdrawButton.disabled === false, `disabled=${withdrawButton.disabled}`);
+          withdrawButton.click();
+          await sleep(2500);
+          check("A4-4 el segundo retiro NO reporta éxito", panel.withdrawStatus !== "success",
+            `status=${panel.withdrawStatus} msg="${panel.withdrawMessage}"`);
+          check("A4-5 y queda en 'error', sin el mensaje '¡Retirado!'",
+            panel.withdrawStatus === "error" && panel.withdrawMessage !== "¡Retirado!",
+            `status=${panel.withdrawStatus} msg="${panel.withdrawMessage}"`);
+          const saldoTrasSegundo = await saldoOnChain(DUEÑO);
+          check("A4-6 el intento revirtió en la simulación: no hubo firma nueva ni se movió el saldo",
+            firmasDeRetiro() === firmasAntes && saldoTrasSegundo === "0",
+            `firmas ${firmasAntes}→${firmasDeRetiro()} chain=${saldoTrasSegundo}`);
+          panel.balanceEth = "0"; // el panel vuelve al estado que dejó el retiro real
+          await sleep(200);
+
+          check("H1f el botón de cerrar lo cierra", sharePanel?.hidden === true, `hidden=${sharePanel?.hidden}`);
+          shareTrigger.click();
+          await sleep(600);
+          check("H1g el trigger lo vuelve a abrir",
+            sharePanel?.hidden === false && shareTrigger.getAttribute("aria-expanded") === "true",
+            `hidden=${sharePanel?.hidden} expanded=${shareTrigger.getAttribute("aria-expanded")}`);
+          const cajaPanelAbierto = sharePanel.getBoundingClientRect();
+
+          // "flotando por toda la página siguiendo el scroll": el trigger está
+          // anclado por abajo-izquierda y el panel por abajo (su alto puede
+          // cambiar según el contenido, así que se compara el borde inferior).
+          win.scrollTo({ top: 2000, behavior: "instant" });
+          await sleep(300);
+          const cajaTrigger1 = shareTrigger.getBoundingClientRect();
+          const cajaPanel1 = sharePanel.getBoundingClientRect();
+          const r = (n) => Math.round(n);
+          check("H1e el widget sigue pegado al scrollear 2000px",
+            Math.abs(cajaTrigger1.top - cajaTrigger0.top) <= 1 &&
+              Math.abs(cajaPanel1.bottom - cajaPanelAbierto.bottom) <= 1 &&
+              Math.abs(cajaPanel1.left - cajaPanelAbierto.left) <= 1,
+            `trigger.top ${r(cajaTrigger0.top)}→${r(cajaTrigger1.top)} · panel.bottom ${r(cajaPanelAbierto.bottom)}→${r(cajaPanel1.bottom)} · panel.left ${r(cajaPanelAbierto.left)}→${r(cajaPanel1.left)} · panel.h ${r(cajaPanelAbierto.height)}→${r(cajaPanel1.height)}`);
+          // El bug clásico de orden de pintado: un botón con posición absoluta
+          // detrás de un hermano posicionado se ve invisible e inclickeable, y
+          // `elemento.click()` programático igual funciona. elementFromPoint no
+          // miente: devuelve lo que hay realmente arriba en ese punto.
+          const cajaCierre = shareClose.getBoundingClientRect();
+          const arriba = shareRoot.elementFromPoint(
+            cajaCierre.left + cajaCierre.width / 2,
+            cajaCierre.top + cajaCierre.height / 2,
+          );
+          check("H1g el × está por encima (un click de verdad lo alcanza)",
+            Boolean(arriba && (arriba === shareClose || shareClose.contains(arriba))),
+            `arriba=${arriba ? arriba.tagName.toLowerCase() + "." + arriba.className : "null"} (se esperaba #shareClose)`);
+
+          check("H1f el panel no se sale de la ventana",
+            cajaPanel1.height <= win.innerHeight - 130 + 1 && cajaPanel1.bottom <= win.innerHeight + 1,
+            `alto=${r(cajaPanel1.height)} tope=${win.innerHeight - 130} bottom=${r(cajaPanel1.bottom)} ventana=${win.innerWidth}x${win.innerHeight}`);
+          win.scrollTo({ top: 0, behavior: "instant" });
+          await sleep(200);
+          check("H2 como dueño: el link es el de su dirección", share.address !== "" && NORM(shareLink.textContent).includes(share.address),
+            `address="${share.address}" link="${NORM(shareLink.textContent)}"`);
+          check("H3 como dueño: se escondió el bloqueo", shareLocked?.hidden === true, `hidden=${shareLocked?.hidden}`);
+          check("H4 como dueño: compartir habilitado", botonesRed.length >= 4 && botonesRed.every((b) => !b.disabled),
+            `n=${botonesRed.length} disabled=${botonesRed.map((b) => b.disabled).join(",")}`);
+          check("H5 el botón nativo sólo aparece si el navegador puede compartir",
+            win.navigator.share ? Boolean(botonNativo && !botonNativo.hidden) : !botonNativo || botonNativo.hidden,
+            `navigator.share=${typeof win.navigator.share} hidden=${botonNativo?.hidden}`);
+
+          let conexionPedida = 0;
+          doc.addEventListener("whiskito:connect-request", () => conexionPedida++, true);
+          shareConnect.click();
+          await sleep(200);
+          check("H6 el CTA de la isla pide conectar", conexionPedida === 1, `eventos=${conexionPedida}`);
+
+          share.address = DIRECCION;
+          await sleep(1500); // import dinámico de la librería de QR
+          const pixeles = qrCanvas ? qrCanvas.getContext("2d").getImageData(0, 0, qrCanvas.width, qrCanvas.height).data : [];
+          check("H7 activa: se esconde el bloqueo", shareLocked?.hidden === true, `hidden=${shareLocked?.hidden}`);
+          check("H8 activa: el link muestra la dirección", NORM(shareLink.textContent).replace(/\s+/g, "").includes(DIRECCION),
+            NORM(shareLink.textContent));
+          check("H9 activa: compartir habilitado", botonesRed.every((b) => !b.disabled), botonesRed.map((b) => b.disabled).join(","));
+          check("H10 el QR se dibujó en el canvas", pixeles.length > 0 && pixeles.some((v, i) => i % 4 === 0 && v < 128),
+            `canvas=${qrCanvas?.width}x${qrCanvas?.height} oscuros=${pixeles.filter((v, i) => i % 4 === 0 && v < 128).length}`);
+          check("H11 el PNG del QR se sube para decodificar afuera", (await subirQr("qr-share")) === 200);
+
+          const cajaQr = qrCanvas.getBoundingClientRect();
+          const estiloQr = win.getComputedStyle(qrCanvas);
+          const cajaTarjeta = shareRoot.querySelector(".share-card").getBoundingClientRect();
+          check("H11c el QR queda entero dentro de la tarjeta (no lo recorta el overflow)",
+            cajaQr.top >= cajaTarjeta.top - 1 && cajaQr.bottom <= cajaTarjeta.bottom + 1,
+            `qr=${Math.round(cajaQr.top)}..${Math.round(cajaQr.bottom)} tarjeta=${Math.round(cajaTarjeta.top)}..${Math.round(cajaTarjeta.bottom)}`);
+          check("H11b el QR en pantalla es cuadrado (no estirado)",
+            Math.abs(cajaQr.width - cajaQr.height) <= 1,
+            `caja=${Math.round(cajaQr.width)}x${Math.round(cajaQr.height)} attrs=${qrCanvas.width}x${qrCanvas.height} inline="${qrCanvas.getAttribute("style") || ""}" computed=${estiloQr.width}x${estiloQr.height}`);
+
+          const abiertas = [];
+          win.open = (url) => { abiertas.push(url); return null; };
+          const compartidos = [];
+          doc.addEventListener("whiskito:share", (e) => compartidos.push(e.detail), true);
+          for (const red of ["whatsapp", "x", "telegram", "facebook"]) {
+            shareRoot.querySelector(`[data-network="${red}"]`)?.click();
+          }
+          const codificada = encodeURIComponent(URL_ESPERADA);
+          check("H12 whatsapp comparte la URL", abiertas[0]?.startsWith("https://wa.me/") && abiertas[0].includes(codificada), abiertas[0]);
+          check("H13 x comparte la URL", Boolean(abiertas[1]?.includes(codificada)), abiertas[1]);
+          check("H14 telegram comparte la URL", Boolean(abiertas[2]?.includes(codificada)), abiertas[2]);
+          check("H15 facebook comparte la URL", Boolean(abiertas[3]?.includes(codificada)), abiertas[3]);
+          check("H16 emite whiskito:share por cada red",
+            ["whatsapp", "x", "telegram", "facebook"].every((n) => compartidos.some((d) => d.network === n)),
+            compartidos.map((d) => d.network).join(","));
+          check("H17 el detalle del evento trae la URL", compartidos.every((d) => d.url === URL_ESPERADA),
+            compartidos.map((d) => d.url).slice(0, 2).join(" | "));
+
+          copyButton.click();
+          await sleep(500);
+          check("H18 copiar link emite el evento y da feedback",
+            compartidos.some((d) => d.network === "copy") && /copiad/i.test(copyButton.textContent),
+            `texto="${NORM(copyButton.textContent)}" eventos=${compartidos.map((d) => d.network).join(",")}`);
+
+          let portapapeles = "(no se pudo leer)";
+          try {
+            portapapeles = await win.navigator.clipboard.readText();
+          } catch (e) {
+            portapapeles = "error: " + ((e && e.name) || e);
+          }
+          check("H18b el link quedó en el portapapeles", portapapeles === URL_ESPERADA, portapapeles);
+
+          downloadButton.click();
+          await sleep(250);
+          const pngQr = qrCanvas.toDataURL("image/png");
+          check("H19 descargar QR emite el evento", compartidos.some((d) => d.network === "download"),
+            compartidos.map((d) => d.network).join(","));
+          check("H20 el QR exportable es un PNG válido",
+            pngQr.startsWith("data:image/png;base64,") && pngQr.length > 2000, `len=${pngQr.length}`);
+
+          share.address = "0x" + "A".repeat(40);
+          await sleep(1500);
+          check("H21 al cambiar la dirección el QR se regenera", (await subirQr("qr-share-2")) === 200);
+          share.address = DIRECCION;
+          await sleep(1200);
+
+          // Geometría de referencia (para comparar antes/después de Shadow DOM)
+          const geo = (el) => {
+            if (!el) return "null";
+            const r = el.getBoundingClientRect();
+            return [Math.round(r.x), Math.round(r.y + win.scrollY), Math.round(r.width), Math.round(r.height)].join(",");
+          };
+          shareClose.click();
+          await sleep(200);
+          check("H22 el botón de cerrar cierra el panel", sharePanel?.hidden === true,
+            `hidden=${sharePanel?.hidden} expanded=${shareTrigger.getAttribute("aria-expanded")}`);
+
+          shareTrigger.click();
+          await sleep(200);
+          sharePanel.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+          await sleep(200);
+          if (sharePanel?.hidden !== true) {
+            // por si el listener está en el documento y no en el panel
+            win.document.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+            await sleep(200);
+          }
+          check("H23 Escape cierra el panel", sharePanel?.hidden === true, `hidden=${sharePanel?.hidden}`);
+
+          share.open = true;
+          await sleep(250);
+          check("H24 la propiedad open abre el panel (lo que usa main.js al conectar)",
+            sharePanel?.hidden === false, `hidden=${sharePanel?.hidden}`);
+          share.open = false;
+          await sleep(150);
+
+          // ── R. La página de OTRO: un donante ──────────────────────────
+          // Es el caso que separa los dos roles: el dueño de la página es uno,
+          // y el que conecta (y paga) es otro.
+          //
+          // Esta página se pide con `&demo=0` A PROPÓSITO: acá lo que se verifica
+          // es el camino REAL (firma contra el contrato, calldata con el dueño).
+          // El default —demo sin firma— se verifica en el bloque N.
+          const OTRO_DUEÑO = "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc";
+          const DONANTE = "0x90f79bf6eb2c4f870365e785982e1f101e93b906";
+          const frame2 = document.createElement("iframe");
+          frame2.style.cssText = "width:1440px;height:900px;border:0;position:absolute;left:-10000px";
+          frame2.src = `/src/index.html?cb=${Date.now()}&u=${OTRO_DUEÑO}&demo=0`;
+          document.body.append(frame2);
+          await new Promise((res) => frame2.addEventListener("load", res, { once: true }));
+          await sleep(1800);
+          const win2 = frame2.contentWindow;
+          const doc2 = win2.document;
+          const share2 = doc2.querySelector("whiskito-share-card");
+          const panel2 = doc2.querySelector("whiskito-panel");
+          const card2 = doc2.querySelector("whiskito-donate-card");
+          const panelRoot2 = panel2.shadowRoot;
+
+          check("R1 en la página de otro, al visitante no se le ofrece el widget",
+            share2.hasAttribute("hidden"), `hidden=${share2.hasAttribute("hidden")}`);
+          check("R2 el panel sabe de quién es",
+            (panel2.owner ?? "").toLowerCase() === OTRO_DUEÑO, `owner=${panel2.owner}`);
+          check("R3 sin wallet igual muestra el saldo público del dueño (el de la chain)",
+            panel2.balanceEth === (await saldoOnChain(OTRO_DUEÑO)),
+            `panel=${panel2.balanceEth} chain=${await saldoOnChain(OTRO_DUEÑO)}`);
+          check("R4 y lo dice en pantalla",
+            panelRoot2.querySelector("#panelOwner").hidden === false,
+            `hidden=${panelRoot2.querySelector("#panelOwner").hidden}`);
+
+          // Ahora conecta un DONANTE (no es el dueño)
+          const pedidos2 = [];
+          win2.ethereum = {
+            request: async ({ method, params }) => {
+              pedidos2.push({ method, params });
+              if (method === "eth_requestAccounts" || method === "eth_accounts") return [DONANTE];
+              if (method === "eth_chainId") return "0x7a69";
+              if (method === "eth_sendTransaction") return "0x" + "ef".repeat(32);
+              if (method === "eth_blockNumber") return "0x2";
+              if (method === "eth_getTransactionReceipt") {
+                return {
+                  transactionHash: "0x" + "ef".repeat(32), transactionIndex: "0x0",
+                  blockHash: "0x" + "cd".repeat(32), blockNumber: "0x1", from: DONANTE,
+                  to: CONTRATO, cumulativeGasUsed: "0x5208", gasUsed: "0x5208",
+                  contractAddress: null, logs: [], logsBloom: "0x" + "00".repeat(256),
+                  status: "0x1", effectiveGasPrice: "0x1", type: "0x2",
+                };
+              }
+              throw new Error("método no esperado: " + method);
+            },
+          };
+          doc2.querySelector("whiskito-navbar").shadowRoot.querySelector("#connectButton").click();
+          await sleep(1800);
+          check("R5 el donante tampoco ve el widget (no es su página)",
+            share2.hasAttribute("hidden"), `hidden=${share2.hasAttribute("hidden")}`);
+          check("R6 el donante no tiene botón de retirar",
+            panelRoot2.querySelector("#withdrawButton").hidden === true,
+            `hidden=${panelRoot2.querySelector("#withdrawButton").hidden}`);
+          check("R7 el donante sí puede donar", card2.ethPrice > 0, `precio=${card2.ethPrice}`);
+          // Contracara del bloque N: con `?demo=0` la tarjeta NO avisa de demo,
+          // porque la donación se firma de verdad.
+          check("R7b con ?demo=0 la tarjeta no lleva el aviso de demo",
+            card2.shadowRoot.querySelector(".card-demo")?.hidden === true,
+            `hidden=${card2.shadowRoot.querySelector(".card-demo")?.hidden}`);
+
+          // Donar: el calldata tiene que llevar la dirección del DUEÑO, y salir
+          // de la wallet del DONANTE. Esa es la separación, al nivel del byte.
+          card2.ethPrice = 2000;
+          const input2 = card2.shadowRoot.querySelector("#ehtAmount");
+          input2.value = "0.001";
+          input2.dispatchEvent(new win2.Event("input", { bubbles: true }));
+          await sleep(250);
+          card2.shadowRoot.querySelector("#fundButton").click();
+          await sleep(1800);
+          const envios = pedidos2.filter((p) => p.method === "eth_sendTransaction");
+          const datos = envios[0]?.params?.[0]?.data ?? "";
+          check("R8 el donante firma fund() apuntando al DUEÑO de la página",
+            datos.startsWith("0x23024408") && datos.includes(OTRO_DUEÑO.slice(2).toLowerCase()),
+            `data=${datos}`);
+          check("R9 y la firma sale de la wallet del DONANTE",
+            (envios[0]?.params?.[0]?.from ?? "").toLowerCase() === DONANTE,
+            `from=${envios[0]?.params?.[0]?.from}`);
+
+          // ── N. Modo demo (el default) y "Mi Panel" ────────────────────
+          // Una tercera página: la misma ruta `/u/0x…` pero SIN `demo=0`, o sea
+          // lo que ve cualquier visitante. Acá pasa lo contrario que en R: con la
+          // wallet conectada, donar NO firma nada y no deja ningún rastro local.
+          //
+          // La cuenta que conecta es una dirección FRESCA (derivada del reloj, sin
+          // letras para no pelear con el checksum): así la historia de donaciones
+          // de esa cuenta arranca vacía aunque el anvil de esta máquina venga con
+          // corridas anteriores encima. El profesional de la donación REAL que se
+          // manda más abajo es esta misma dirección.
+          const FRESCO = "0x" + String(Date.now()).padStart(40, "0");
+          const frame3 = document.createElement("iframe");
+          frame3.style.cssText = "width:1440px;height:900px;border:0;position:absolute;left:-10000px";
+          frame3.src = `/src/index.html?cb=${Date.now()}&u=${OTRO_DUEÑO}`;
+          document.body.append(frame3);
+          await new Promise((res) => frame3.addEventListener("load", res, { once: true }));
+          await sleep(1800);
+          const win3 = frame3.contentWindow;
+          const doc3 = win3.document;
+          const navRoot3 = doc3.querySelector("whiskito-navbar").shadowRoot;
+          const card3 = doc3.querySelector("whiskito-donate-card");
+          const cardRoot3 = card3.shadowRoot;
+          const dash3 = doc3.querySelector("whiskito-dashboard");
+          const dashRoot3 = dash3.shadowRoot;
+          // El resumen de ESTA página (no el de la landing, que acumula las
+          // donaciones reales de los bloques anteriores). Se mide antes y después
+          // de la donación demo: lo que importa es que no se mueva.
+          const panelRoot3 = doc3.querySelector("whiskito-panel").shadowRoot;
+          const filasResumen3 = () => [...panelRoot3.querySelectorAll("#donationsList .r-item")];
+          const balanceResumen3 = () => panelRoot3.querySelector("#balanceDisplay").textContent;
+          const filasResumenAntes = filasResumen3().length;
+          const balanceResumenAntes = balanceResumen3();
+
+          check("N1 la tarjeta avisa que la donación es una demo",
+            cardRoot3.querySelector(".card-demo")?.hidden === false,
+            `hidden=${cardRoot3.querySelector(".card-demo")?.hidden}`);
+          check("N2 sin wallet no hay botón de Mi Panel",
+            navRoot3.querySelector("#dashboardButton").hidden === true);
+          check("N2b el navbar ya no tiene dos «Mi Panel»: el ancla es «Resumen»",
+            NORM([...navRoot3.querySelectorAll(".nav-links a")].map((a) => a.textContent).join("|"))
+              === "Donar|Cómo funciona|Resumen|Preguntas",
+            NORM([...navRoot3.querySelectorAll(".nav-links a")].map((a) => a.textContent).join("|")));
+
+          // Wallet falsa que SÓLO sabe identificarse: si la app intentara firmar,
+          // el método no existe y el flujo termina en error. Es a propósito: el
+          // modo demo no tiene que pedirle nada on-chain a la wallet.
+          const pedidos3 = [];
+          win3.ethereum = {
+            request: async ({ method }) => {
+              pedidos3.push(method);
+              if (method === "eth_requestAccounts" || method === "eth_accounts") return [FRESCO];
+              if (method === "eth_chainId") return "0x7a69";
+              if (method === "eth_blockNumber") return "0x2";
+              throw new Error("método no esperado en modo demo: " + method);
+            },
+          };
+          navRoot3.querySelector("#connectButton").click();
+          await sleep(1500);
+          check("N3 al conectar aparece el botón de Mi Panel",
+            navRoot3.querySelector("#dashboardButton").hidden === false,
+            `hidden=${navRoot3.querySelector("#dashboardButton").hidden}`);
+
+          card3.ethPrice = 2000;
+          const input3 = cardRoot3.querySelector("#ehtAmount");
+          input3.value = "0.002";
+          input3.dispatchEvent(new win3.Event("input", { bubbles: true }));
+          await sleep(250);
+          cardRoot3.querySelector("#fundButton").click();
+          await sleep(2200);
+          const firmas3 = pedidos3.filter((m) => /sign|sendTransaction|sendRawTransaction/i.test(m));
+          check("N4 donar en modo demo NO pide ninguna firma (no se gasta gas)",
+            firmas3.length === 0, `pedidos=${[...new Set(pedidos3)].join(",")}`);
+          eq("N5 la tarjeta termina en success igual", card3.status, "success");
+          check("N6 y el mensaje habla de demo, no de on-chain",
+            /demo/i.test(NORM(cardRoot3.querySelector("#txText").textContent)) &&
+              !/on-chain/i.test(NORM(cardRoot3.querySelector("#txText").textContent)),
+            NORM(cardRoot3.querySelector("#txText").textContent));
+          // La donación simulada no puede meterse en el resumen del panel (que es
+          // la verdad de la chain) ni quedar guardada en ningún lado.
+          eq("N7 el resumen del panel NO sumó la donación demo",
+            filasResumen3().length, filasResumenAntes);
+          eq("N8 y el balance tampoco se movió", balanceResumen3(), balanceResumenAntes);
+          check("N8b la demo no deja ningún rastro local",
+            win3.localStorage.getItem("whiskito:demo-ledger:v1") === null,
+            `ledger=${win3.localStorage.getItem("whiskito:demo-ledger:v1")}`);
+
+          // ── Mi Panel: la historia REAL, leída de la chain ─────────────
+          // El panel muestra lo que recibió LA CUENTA CONECTADA, y esas filas son
+          // eventos `Funded` de la chain. Se abre desde el navbar (botón → evento
+          // → app.js → lectura → isla → tabla) y primero tiene que estar VACÍO:
+          // esta cuenta es fresca, no puede tener historia.
+          check("N9 Mi Panel arranca cerrado", dash3.open === false);
+          navRoot3.querySelector("#dashboardButton").click();
+          await sleep(900);
+          check("N10 el botón del navbar abre Mi Panel", dash3.open === true);
+          const cajaDash = dashRoot3.querySelector("#dialog")?.getBoundingClientRect();
+          check("N10b y el panel entra entero en la ventana (no se sale por ningún lado)",
+            Boolean(cajaDash) && cajaDash.top >= -1 && cajaDash.left >= -1 &&
+              cajaDash.right <= win3.innerWidth + 1 && cajaDash.bottom <= win3.innerHeight + 1,
+            `dialog=${cajaDash ? [cajaDash.left, cajaDash.top, cajaDash.width, cajaDash.height].map(Math.round).join(",") : "null"} ventana=${win3.innerWidth}x${win3.innerHeight}`);
+          eq("N10c una cuenta sin donaciones muestra la tabla vacía",
+            dashRoot3.querySelectorAll("#donationsBody tr").length, 0);
+          check("N10d y lo dice con su estado vacío (no con un error)",
+            dashRoot3.querySelector(".dash-empty")?.hidden === false &&
+              !dashRoot3.querySelector("#dashSummary")?.classList.contains("is-error"),
+            `empty=${dashRoot3.querySelector(".dash-empty")?.hidden} resumen=${NORM(dashRoot3.querySelector("#dashSummary")?.textContent)}`);
+          doc3.dispatchEvent(new win3.KeyboardEvent("keydown", { key: "Escape" }));
+          await sleep(300);
+
+          // Ahora sí: una donación REAL para esa cuenta. `fund(address)` desde la
+          // cuenta 0 de anvil (está desbloqueada, así que la firma el nodo) por
+          // 0.002 ETH: con el oráculo en 2000 USD son 4.00 USD, que es lo que el
+          // evento graba y lo que la tabla tiene que mostrar.
+          const FUND_SELECTOR = "0x23024408";
+          const reciboReal = await fetch("http://127.0.0.1:8545", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0", id: 1, method: "eth_sendTransaction",
+              params: [{
+                from: "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+                to: CONTRATO_JS,
+                value: "0x" + (2000000000000000n).toString(16),
+                data: FUND_SELECTOR + FRESCO.slice(2).padStart(64, "0"),
+              }],
+            }),
+          }).then((r) => r.json());
+          check("N11 la donación real entró a la chain (control de esta prueba)",
+            String(reciboReal.result ?? "").startsWith("0x"),
+            JSON.stringify(reciboReal).slice(0, 160));
+          await sleep(500);
+
+          navRoot3.querySelector("#dashboardButton").click();
+          await sleep(1200);
+          const filasTabla = [...dashRoot3.querySelectorAll("#donationsBody tr")];
+          eq("N12 la tabla lista la donación REAL de la chain", filasTabla.length, 1);
+          const textoFila = NORM(filasTabla[0]?.textContent);
+          // La dirección corta conserva el checksum que devuelve la wallet
+          // (`0xf39F...2266`), así que se compara sin distinguir mayúsculas.
+          check("N13 la fila trae el donante, el monto y el USD que grabó el evento",
+            textoFila.toLowerCase().includes("0xf39f...2266") &&
+              textoFila.includes("0.002") && textoFila.includes("4.00"),
+            textoFila);
+          check("N14 y cuándo, en tiempo relativo", /hace/.test(textoFila), textoFila);
+          check("N14b el resumen suma esa ronda",
+            NORM(dashRoot3.querySelector("#dashSummary")?.textContent).includes("1 ronda") &&
+              NORM(dashRoot3.querySelector("#dashSummary")?.textContent).includes("0.002 ETH"),
+            `resumen=${dashRoot3.querySelector("#dashSummary")?.textContent}`);
+          check("N14c el panel dice de qué cuenta son las donaciones",
+            NORM(dashRoot3.querySelector("#dashAddress")?.textContent ?? "").toLowerCase() ===
+              `${FRESCO.slice(0, 6)}...${FRESCO.slice(-4)}`.toLowerCase(),
+            `address=${dashRoot3.querySelector("#dashAddress")?.textContent} esperaba=${FRESCO.slice(0, 6)}...${FRESCO.slice(-4)}`);
+          check("N14d Mi Panel no dice «demo» en ninguna parte (las donaciones son reales)",
+            !/demo/i.test(dashRoot3.querySelector("#dialog")?.textContent ?? ""),
+            `texto=${NORM(dashRoot3.querySelector("#dialog")?.textContent ?? "").slice(0, 90)}`);
+          doc3.dispatchEvent(new win3.KeyboardEvent("keydown", { key: "Escape" }));
+          await sleep(300);
+          check("N15 Escape cierra Mi Panel", dash3.open === false);
+          navRoot3.querySelector("#dashboardButton").click();
+          await sleep(500);
+          dashRoot3.querySelector("#closeButton").click();
+          await sleep(300);
+          check("N16 el botón de cerrar también cierra", dash3.open === false);
+          navRoot3.querySelector("#dashboardButton").click();
+          await sleep(400);
+          navRoot3.querySelector("#disconnectButton").click();
+          await sleep(700);
+          check("N17 al desconectar, Mi Panel se cierra y su botón desaparece",
+            dash3.open === false && navRoot3.querySelector("#dashboardButton").hidden === true,
+            `open=${dash3.open} hidden=${navRoot3.querySelector("#dashboardButton").hidden}`);
+
+          // ── N18. En demo, el DUEÑO también puede probar la donación ───
+          // La guardia de auto-donación existe para no firmar una donación a uno
+          // mismo; en demo no se firma nada, así que no tiene nada que proteger.
+          // (Que con donaciones REALES sí bloquee lo verifica el bloque R con
+          // `?demo=0`, y la sonda de la página del link en su bloque P.)
+          const frame4 = document.createElement("iframe");
+          frame4.style.cssText = "width:1440px;height:900px;border:0;position:absolute;left:-10000px";
+          frame4.src = `/src/index.html?cb=${Date.now()}&u=${OTRO_DUEÑO}`;
+          document.body.append(frame4);
+          await new Promise((res) => frame4.addEventListener("load", res, { once: true }));
+          await sleep(1800);
+          const win4 = frame4.contentWindow;
+          const doc4 = win4.document;
+          const navRoot4 = doc4.querySelector("whiskito-navbar").shadowRoot;
+          const card4 = doc4.querySelector("whiskito-donate-card");
+          const cardRoot4 = card4.shadowRoot;
+          const pedidos4 = [];
+          win4.ethereum = {
+            request: async ({ method }) => {
+              pedidos4.push(method);
+              if (method === "eth_requestAccounts" || method === "eth_accounts") return [OTRO_DUEÑO];
+              if (method === "eth_chainId") return "0x7a69";
+              if (method === "eth_blockNumber") return "0x2";
+              throw new Error("método no esperado en modo demo: " + method);
+            },
+          };
+          navRoot4.querySelector("#connectButton").click();
+          await sleep(1500);
+          card4.ethPrice = 2000;
+          const input4 = cardRoot4.querySelector("#ehtAmount");
+          input4.value = "0.002";
+          input4.dispatchEvent(new win4.Event("input", { bubbles: true }));
+          await sleep(250);
+          cardRoot4.querySelector("#fundButton").click();
+          await sleep(2200);
+          const firmas4 = pedidos4.filter((m) => /sign|sendTransaction|sendRawTransaction/i.test(m));
+          check("N18 en demo el dueño de la página puede probar la donación (la guardia no bloquea)",
+            firmas4.length === 0 && card4.status === "success" &&
+              !/on-chain/i.test(NORM(cardRoot4.querySelector("#txText").textContent)),
+            `firmas=${firmas4.length} status=${card4.status} msj=${NORM(cardRoot4.querySelector("#txText").textContent)}`);
+
+          // ── L. Iconos: Lucide hidratado, y ningún emoji suelto ────
+          // El objetivo del cambio era sacar los iconos hardcodeados: acá se
+          // comprueba que se hidrataron de verdad —incluidas las 4 islas, que
+          // viven en un shadow root— y que no quedó ningún pictograma en lo que
+          // el usuario ve. Los ★ del cartel y los 🥃 de SHARE_TEXT/SHARE_TITLE no
+          // están en el rango: son tipografía y copy de mensaje, no iconos.
+          const EMOJI = /[\u{1F300}-\u{1FAFF}\u{26A0}\u{26D3}\u{2708}\u{2B07}\u{2713}\u{2714}]/gu;
+          const islasConSombra = ["whiskito-navbar", "whiskito-donate-card", "whiskito-panel", "whiskito-share-card", "whiskito-radio", "whiskito-dashboard"];
+          const raices = [doc, ...islasConSombra.map((n) => doc.querySelector(n)?.shadowRoot).filter(Boolean)];
+
+          const sinHidratar = raices.flatMap((r) => [...r.querySelectorAll("i[data-lucide]")])
+            .map((el) => el.getAttribute("data-lucide"));
+          check("L1 todos los marcadores data-lucide se hidrataron",
+            sinHidratar.length === 0,
+            sinHidratar.length ? `quedaron sin reemplazar: ${[...new Set(sinHidratar)].join(", ")}` : "ninguno");
+
+          // `doc.querySelectorAll` NO atraviesa shadow roots: lo que devuelve es
+          // exactamente lo que hay en light DOM.
+          //
+          // Los números son los marcadores `data-lucide` de cada template. Se
+          // comparan con los SVG que existen DESPUÉS de pintar, así que esta
+          // aserción caza al que borra un icono: a un `<button>` que lleva el
+          // icono adentro y además se pinta con `textContent` (le pasó a
+          // #copyButton), `update()` —que corre justo después de hidratar— le
+          // saca el SVG y el conteo baja.
+          // (El navbar sumó el icono del botón "Mi Panel" y la tarjeta el del
+          // aviso de demo; el dashboard es nuevo y lleva 2: el recibo y la ×.)
+          const ESPERADOS = { "whiskito-navbar": 4, "whiskito-donate-card": 7, "whiskito-panel": 6, "whiskito-share-card": 15, "whiskito-radio": 8, "whiskito-dashboard": 2 };
+          const conteos = Object.entries(ESPERADOS).map(([host, esperado]) => ({
+            host, esperado,
+            hay: doc.querySelector(host)?.shadowRoot?.querySelectorAll("svg.icon").length ?? -1,
+          }));
+          const iconosLight = doc.querySelectorAll("svg.icon").length; // 10 hero + 3 line-up + 3 footer
+          check("L2 cada isla conserva todos sus iconos hidratados (ninguno borrado al pintar)",
+            iconosLight === 16 && conteos.every((c) => c.hay === c.esperado),
+            `light=${iconosLight} (esperado 16) · ` +
+              conteos.map((c) => `${c.host.replace("whiskito-", "")}=${c.hay}/${c.esperado}`).join(" "));
+
+          const textoVisible = raices.map((r) => r.body?.textContent ?? r.textContent ?? "").join(" ");
+          const emojis = textoVisible.match(EMOJI) ?? [];
+          check("L3 no quedó ningún emoji pictográfico en lo renderizado",
+            emojis.length === 0,
+            emojis.length ? `encontrados: ${[...new Set(emojis)].join(" ")}` : "ninguno");
+
+          // El icono tiene que medir 1em —o sea, heredar el font-size del slot—
+          // y pintarse con el color del slot, no con uno propio.
+          const tick = doc.querySelector(".hero-trust .tick");
+          const tickCss = tick ? win.getComputedStyle(tick) : null;
+          check("L4 el icono mide 1em y toma el color del slot",
+            Boolean(tickCss) &&
+              Math.abs(parseFloat(tickCss.width) - parseFloat(tickCss.fontSize)) < 0.6 &&
+              tickCss.color === "rgb(74, 122, 61)",
+            tick ? `ancho=${tickCss.width} font-size=${tickCss.fontSize} color=${tickCss.color}` : "no encontré .hero-trust .tick");
+
+          // Un icono con marcador sigue gobernado por el pintado de la isla:
+          // conectado = se ve el check y se esconde la billetera; y al revés.
+          const iconoWallet = navRoot.querySelector('svg[data-lucide="wallet"]');
+          const iconoCheck = navRoot.querySelector('svg[data-lucide="circle-check"]');
+          navbar.connectionState = "connected";
+          await sleep(80);
+          const enConectado = iconoWallet?.hasAttribute("hidden") === true && iconoCheck?.hasAttribute("hidden") === false;
+          navbar.connectionState = "disconnected";
+          await sleep(80);
+          const enDesconectado = iconoWallet?.hasAttribute("hidden") === false && iconoCheck?.hasAttribute("hidden") === true;
+          check("L5 el marcador de estado sigue gobernando los iconos del navbar",
+            Boolean(iconoWallet && iconoCheck) && enConectado && enDesconectado,
+            `conectado=${enConectado} desconectado=${enDesconectado}`);
+
+          // ── M. La radio ───────────────────────────────────────────
+          // Se prueban las reglas de producto de §6.1 que sí son deterministas:
+          // que arranque cerrada, que NO haya nada de YouTube hasta que alguien
+          // pida música, que sus controles sean alcanzables y que el widget no se
+          // mueva al scrollear. La cadena real contra YouTube (cargar la API,
+          // crear el player, que suene) se verifica aparte, con la sonda
+          // `zoom.html?radio=play`, para no meter red en el harness.
+          const radioIsla = doc.querySelector("whiskito-radio");
+          const radioRoot = radioIsla.shadowRoot ?? radioIsla;
+          const radioTrigger = radioRoot.querySelector("#radioTrigger");
+          const radioPanel = radioRoot.querySelector("#radioPanel");
+          const radioVol = radioRoot.querySelector("#radioVolume");
+          const radioPlay = radioRoot.querySelector("#radioPlay");
+          const radioStop = radioRoot.querySelector("#radioStop");
+
+          check("M1 la radio arranca cerrada y sin nada de YouTube cargado",
+            Boolean(radioPanel?.hasAttribute("hidden")) &&
+              radioRoot.querySelectorAll("iframe").length === 0 &&
+              !doc.querySelector('script[src*="iframe_api"]'),
+            `panel[hidden]=${radioPanel?.hasAttribute("hidden")} iframes=${radioRoot.querySelectorAll("iframe").length} ` +
+              `script=${Boolean(doc.querySelector('script[src*="iframe_api"]'))}`);
+
+          const cajaTrigger = radioTrigger.getBoundingClientRect();
+          const estiloTrigger = win.getComputedStyle(radioTrigger);
+          check("M2 el disparador está fijo abajo a la izquierda (y no choca con compartir)",
+            estiloTrigger.position === "fixed" &&
+              Math.abs(cajaTrigger.left - 20) <= 1 &&
+              Math.abs(win.innerHeight - cajaTrigger.bottom - 20) <= 1,
+            `position=${estiloTrigger.position} left=${Math.round(cajaTrigger.left)} ` +
+              `bottom=${Math.round(win.innerHeight - cajaTrigger.bottom)}`);
+
+          // Ningún ancestro puede llevar transform/filter/will-change: si no, el
+          // `fixed` deja de seguir el scroll (la trampa que ya se pagó en H).
+          let ancestroSucio = null;
+          for (let n = radioTrigger; n; n = n.parentElement ?? n.getRootNode()?.host ?? null) {
+            const css = win.getComputedStyle(n);
+            if (css.transform !== "none" || css.filter !== "none" || css.willChange !== "auto") {
+              ancestroSucio = `${n.tagName ?? "?"}${n.id ? "#" + n.id : ""}`;
+              break;
+            }
+          }
+          check("M3 ningún ancestro del widget lleva transform/filter/will-change", ancestroSucio === null, ancestroSucio ?? "limpio");
+
+          radioTrigger.click();
+          await sleep(150);
+          check("M4 el click abre el panel",
+            radioIsla.abierto === true && !radioPanel.hasAttribute("hidden"),
+            `abierto=${radioIsla.abierto} hidden=${radioPanel.hasAttribute("hidden")}`);
+
+          radioVol.value = "70";
+          radioVol.dispatchEvent(new win.Event("input", { bubbles: true }));
+          await sleep(100);
+          check("M5 el slider escribe el volumen en el componente", Number(radioIsla.volumen) === 70, `volumen=${radioIsla.volumen}`);
+
+          const centro = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+          const alcanzable = (el) => {
+            if (!el || el.getClientRects().length === 0) return false;
+            const [x, y] = centro(el);
+            const arriba = radioRoot.elementFromPoint(x, y);
+            return arriba === el || el.contains(arriba);
+          };
+          check("M6 play, parar y volumen son alcanzables de verdad (no tapados)",
+            alcanzable(radioPlay) && alcanzable(radioStop) && alcanzable(radioVol),
+            `play=${alcanzable(radioPlay)} stop=${alcanzable(radioStop)} vol=${alcanzable(radioVol)}`);
+
+          const yAntes = radioTrigger.getBoundingClientRect().top;
+          win.scrollTo({ top: 1400, behavior: "instant" });
+          await sleep(150);
+          const yDespues = radioTrigger.getBoundingClientRect().top;
+          check("M7 el widget no se mueve al scrollear 1400px", Math.abs(yAntes - yDespues) <= 1,
+            `antes=${Math.round(yAntes)} después=${Math.round(yDespues)}`);
+          win.scrollTo({ top: 0, behavior: "instant" });
+          await sleep(100);
+
+          // Escape cierra. Se despacha sobre el panel (que burbujea, compuesto,
+          // hasta un listener en document) y también sobre el documento, para no
+          // depender de dónde lo escuche la isla.
+          let escapeRompe = "";
+          try {
+            radioPanel.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+            win.document.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          } catch (error) { escapeRompe = String(error && error.message); }
+          await sleep(120);
+          check("M8 Escape cierra el panel", escapeRompe === "" && radioPanel.hasAttribute("hidden"),
+            escapeRompe || `hidden=${radioPanel.hasAttribute("hidden")}`);
+
+          // Pedir música no puede tirar excepción, con YouTube disponible o no:
+          // si la API no carga, la isla tiene que quedar en "error", no romperse.
+          let playRompe = "";
+          try { radioTrigger.click(); await sleep(150); radioPlay.click(); } catch (error) { playRompe = String(error && error.message); }
+          await sleep(200);
+          check("M9 pedir música no rompe y saca a la isla de 'apagado'",
+            playRompe === "" && radioIsla.estado !== "apagado",
+            playRompe || `estado=${radioIsla.estado}`);
+
+          const geometria =
+            `GEO card=${geo(cardRoot.querySelector(".donate-card"))}` +
+            ` navbar=${geo(navRoot.querySelector(".navbar"))}` +
+            ` panel=${geo(panelRoot.querySelector(".receipt"))}` +
+            ` ancla#panel(block)=${y} ancla#panel(contents)=${yConContents}`;
+
+          // ── Reporte ───────────────────────────────────────────────
+          const fallos = results.filter((r) => !r.ok);
+          const reporte = fallos.length
+            ? `FALLOS(${fallos.length}/${results.length}) :: ` +
+              fallos.map((f) => `${f.name}${f.extra ? " <" + f.extra + ">" : ""}`).join(" ;; ")
+            : `OK(${results.length}/${results.length}) :: todas las islas reaccionan como se espera`;
+          document.getElementById("out").textContent =
+            reporte + " ;; " + geometria + "\n\n" + results.map((r) => `${r.ok ? "✓" : "✗"} ${r.name}${r.ok ? "" : " — " + r.extra}`).join("\n");
+          try {
+            await fetch("/__report__?d=" + encodeURIComponent((reporte + " ;; " + geometria).slice(0, 6000)), { mode: "no-cors" });
+          } catch (e) {
+            /* best-effort: el reporte también queda en el <pre> */
+          }
+        } catch (error) {
+          const reporte = "ERROR :: " + (error && error.message ? error.message : String(error));
+          document.getElementById("out").textContent = reporte;
+          try {
+            await fetch("/__report__?d=" + encodeURIComponent(reporte), { mode: "no-cors" });
+          } catch (e) {}
+        }
+      })();
+    </script>
+  </body>
+</html>
