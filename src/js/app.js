@@ -28,9 +28,11 @@ import {
 
 import {
   fund,
+  readBalance,
   readDonationHistory,
   readEthPrice,
   readPortfolio,
+  withdraw,
   withdrawAll,
 } from "./solidity-functions.js";
 
@@ -39,6 +41,8 @@ const pageOwnerFromUrl = resolvePageOwner();
 let account = "";
 let role = VIEWER_ROLE.GUEST;
 let pageOwner = pageOwnerFromUrl;
+/** ¿Está abierto "Mi Panel"? Se sigue acá porque el modal se cierra solo. */
+let dashboardOpen = false;
 
 function applyRole() {
   pageOwner = resolveEffectiveOwner({
@@ -64,6 +68,18 @@ async function readPagePortfolio() {
   return readPortfolio(pageOwner);
 }
 
+/**
+ * Cierra "Mi Panel" y lo recuerda. Cubre las tres vías de cierre de la isla (la
+ * ×, Escape y el fondo, que llegan como `whiskito:dashboard-close`) y las que
+ * decide este flujo (desconectar, cambiar de cuenta). Sin este dato, un refresco
+ * después de un retiro volvería a abrir un modal que el usuario ya había
+ * cerrado.
+ */
+function closeDashboard() {
+  dashboardOpen = false;
+  islands.hideDashboard();
+}
+
 // ── REACCIONES: la isla avisa, app.js responde ───────────────────────
 async function onConnectRequest() {
   islands.setConnectionState("connecting");
@@ -86,7 +102,7 @@ async function showConnectedAccount(address) {
   islands.setNavbarAccount(address);
   islands.setConnectionState("connected");
   // El panel de la cuenta anterior (si estaba abierto) ya no describe a ésta.
-  islands.hideDashboard();
+  closeDashboard();
   applyRole();
   // Sólo si es el dueño tiene sentido abrirle su QR para compartir.
   if (role === VIEWER_ROLE.OWNER) islands.setShareOpen(true);
@@ -137,7 +153,7 @@ async function onAccountsChanged(accounts) {
     islands.setNavbarAccount("");
     islands.setConnectionState("disconnected");
     islands.setShareOpen(false);
-    islands.hideDashboard();
+    closeDashboard();
     applyRole();
     // Desconectado: el cartel de la donación anterior ya no corresponde.
     islands.setDonateStatus("idle", "");
@@ -173,7 +189,7 @@ async function onDisconnectRequest() {
   islands.setNavbarAccount("");
   islands.setConnectionState("disconnected");
   islands.setShareOpen(false);
-  islands.hideDashboard();
+  closeDashboard();
   applyRole();
   // Sin wallet sigue siendo público: se vuelve a leer el panel de la página.
   try {
@@ -186,14 +202,25 @@ async function onDisconnectRequest() {
 /**
  * Retirar. Sólo el dueño, y sólo con wallet: hay que FIRMAR. Si la UI se
  * equivocara, el contrato revierte igual (`balances[msg.sender]`).
+ *
+ * El pedido llega con `detail.amount`:
+ *   - un string decimal en ETH → retiro PARCIAL (`withdraw` lo convierte);
+ *   - `null` → retiro TOTAL (`withdrawAll`).
+ * A `withdraw`/`withdrawAll` nunca se les pasa una dirección: el contrato usa
+ * `balances[msg.sender]`, o sea la cuenta que firma.
  */
-async function onWithdrawRequest() {
+async function onWithdrawRequest(event) {
+  const amount = event?.detail?.amount ?? null;
   if (!canWithdraw(role) || !getWalletClient()) return;
   islands.setWithdrawStatus("pending");
   try {
-    await withdrawAll();
+    await (amount === null ? withdrawAll() : withdraw(amount));
     islands.setWithdrawStatus("success", "¡Retirado!");
-    islands.showPortfolio(await readPagePortfolio()); // la chain es la verdad
+    // La chain es la verdad: se relee el panel de LA PÁGINA y, si el modal está
+    // abierto, también sus datos —si no, el modal seguiría mostrando el saldo
+    // de antes del retiro (y con él un botón que ya no corresponde)—.
+    islands.showPortfolio(await readPagePortfolio());
+    if (dashboardOpen) await loadDashboard();
   } catch (error) {
     islands.setWithdrawStatus(
       "error",
@@ -244,28 +271,55 @@ async function onFundRequest(event) {
 
 /**
  * "Mi Panel" (el botón del navbar): la tabla con TODAS las donaciones que
- * recibió la cuenta conectada.
+ * recibió la cuenta conectada, más su balance disponible y si puede retirar.
  *
  * Las filas son **reales**: se leen de la chain (los eventos `Funded` de esa
  * dirección). La demo no deja filas acá, porque no movió nada. Es a propósito la
  * cuenta conectada y no la dueña de la página: el botón vive en MI navbar, así
  * que muestra lo mío.
+ *
+ * Es reutilizable a propósito: la llama el pedido del navbar y TAMBIÉN el retiro
+ * exitoso (`onWithdrawRequest`), para que el modal abierto no siga mostrando el
+ * balance de antes.
  */
-async function onDashboardRequest() {
+async function loadDashboard() {
   if (!account) return;
   try {
+    // Las dos lecturas van juntas: la tabla y el balance son la misma foto.
+    const [balanceEth, donations] = await Promise.all([
+      readBalance(account),
+      readDonationHistory(account),
+    ]);
+    // El equivalente en dólares es un adorno: si el precio no está, el modal
+    // igual sirve (el retiro se mide en ETH, no en USD).
+    let balanceUsd = "0.00";
+    try {
+      balanceUsd = (Number(balanceEth) * (await readEthPrice())).toFixed(2);
+    } catch (error) {
+      console.warn(
+        "Sin precio para el equivalente en dólares:",
+        error?.message ?? error
+      );
+    }
     islands.showDashboard({
       address: account,
-      donations: await readDonationHistory(account),
+      donations,
+      balanceEth,
+      balanceUsd,
+      canWithdraw: canWithdraw(role),
     });
+    dashboardOpen = true;
   } catch (error) {
     // Sin chain no hay historia. Se dice, en vez de mostrar una tabla vacía que
-    // se leería como "no recibiste nada".
+    // se leería como "no recibiste nada". Sin balance leído tampoco hay retiro
+    // que ofrecer: los botones quedan apagados (el default de la isla es `0`).
     islands.showDashboard({
       address: account,
       donations: [],
       message: "No pudimos leer tus donaciones de la chain",
+      canWithdraw: canWithdraw(role),
     });
+    dashboardOpen = true;
     console.warn(
       "No se pudo leer la historia de donaciones:",
       error?.message ?? error
@@ -273,8 +327,15 @@ async function onDashboardRequest() {
   }
 }
 
-// Withdraw queda pendiente: el contrato tiene withdraw/withdrawAll, falta el
-// botón en la UI. El panel se llena con datos (readPortfolio), no con clicks.
+/** El pedido del navbar: cargar (y abrir) "Mi Panel". */
+async function onDashboardRequest() {
+  await loadDashboard();
+}
+
+/** La isla avisa que el modal se cerró (× , Escape o el fondo). */
+function onDashboardClose() {
+  dashboardOpen = false;
+}
 
 // Estado inicial: las islas nacen sin datos, alguien se los tiene que dar.
 async function bootstrap() {
@@ -313,6 +374,7 @@ export function startApp() {
     withdraw: onWithdrawRequest,
     fund: onFundRequest,
     dashboard: onDashboardRequest,
+    dashboardClose: onDashboardClose,
   });
 
   // La wallet avisa cuando el usuario cambia de cuenta por su cuenta: la app lo

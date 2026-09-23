@@ -33,12 +33,19 @@ export function showPortfolio({ balanceEth, balanceUsd, donations }) {
   panel.donations = donations;
 }
 
-/** Estado de la retirada; el mensaje sólo se pisa si viene uno. */
+/**
+ * Estado de la retirada; el mensaje sólo se pisa si viene uno.
+ *
+ * El veredicto es uno solo y hay DOS islas que retiran (el panel y el modal "Mi
+ * Panel"), así que se escribe en las dos: si el retiro salió del modal, el panel
+ * de atrás también tiene que dejar de mentir.
+ */
 export function setWithdrawStatus(status, message) {
-  const panel = findIsland("whiskito-panel");
-  if (!panel) return;
-  panel.withdrawStatus = status;
-  if (message !== undefined) panel.withdrawMessage = message;
+  for (const island of [findIsland("whiskito-panel"), findIsland("whiskito-dashboard")]) {
+    if (!island) continue;
+    island.withdrawStatus = status;
+    if (message !== undefined) island.withdrawMessage = message;
+  }
 }
 
 /** El precio ETH→USD que la tarjeta usa para el equivalente en dólares. */
@@ -143,12 +150,32 @@ export function hideTxModal() {
   modal.open = false;
 }
 
-export function showDashboard({ address, donations, message } = {}) {
+/**
+ * Abre "Mi Panel" con TODO lo que muestra: la dirección, sus donaciones, el
+ * aviso de lectura, el balance de la cuenta conectada (ETH y USD) y si esa
+ * cuenta puede retirar.
+ *
+ * Los que no vengan usan el mismo criterio de default de siempre: vacío para la
+ * dirección y el aviso, lista vacía para las donaciones, y —como el panel— `0` /
+ * `0.00` para un balance que nadie leyó. `canWithdraw` es opt-in: sin que nadie
+ * lo autorice, la isla no ofrece retirar.
+ */
+export function showDashboard({
+  address,
+  donations,
+  message,
+  balanceEth,
+  balanceUsd,
+  canWithdraw,
+} = {}) {
   const dashboard = findIsland("whiskito-dashboard");
   if (!dashboard) return;
   dashboard.address = address ?? "";
   dashboard.donations = Array.isArray(donations) ? donations : [];
   dashboard.message = message ?? "";
+  dashboard.balanceEth = balanceEth ?? "0";
+  dashboard.balanceUsd = balanceUsd ?? "0.00";
+  dashboard.canWithdraw = Boolean(canWithdraw);
   dashboard.open = true;
 }
 
@@ -186,6 +213,7 @@ export function onRequest({
   withdraw,
   fund,
   dashboard,
+  dashboardClose,
 } = {}) {
   if (connect) document.addEventListener("whiskito:connect-request", connect);
   if (disconnect)
@@ -196,6 +224,11 @@ export function onRequest({
     document.addEventListener("whiskito:withdraw-request", withdraw);
   if (dashboard)
     document.addEventListener("whiskito:dashboard-request", dashboard);
+  // "Mi Panel" también avisa cuando se CIERRA (la ×, Escape o el fondo): el
+  // flujo necesita saberlo para no reabrirlo al refrescar sus datos después de
+  // un retiro.
+  if (dashboardClose)
+    document.addEventListener("whiskito:dashboard-close", dashboardClose);
   const donateCard = findIsland("whiskito-donate-card");
   if (fund && donateCard) {
     donateCard.addEventListener("whiskito:fund-request", fund);

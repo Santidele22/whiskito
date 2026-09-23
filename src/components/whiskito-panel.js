@@ -202,9 +202,9 @@ export class WhiskitoPanel extends WhiskitoElement {
       width: 100%;
     }
 
-    /* El botón de retirar se oculta con [hidden]: el display del .btn gana la
-       pulseada contra el [hidden] del navegador, así que hay que declararlo. */
-    #withdrawButton[hidden] {
+    /* Los botones que se ocultan con [hidden] tienen que declararlo: el display
+       del .btn le gana la pulseada contra el [hidden] del navegador. */
+    .btn[hidden] {
       display: none;
     }
 
@@ -370,6 +370,72 @@ export class WhiskitoPanel extends WhiskitoElement {
       display: none;
     }
 
+    /* ---------- Retiro parcial: la fila inline ---------- */
+    /* Cada elemento nuevo que se muestra u oculta declara su [hidden]: el
+       display propio le gana al del navegador (la misma trampa que tenía
+       #withdrawButton). */
+    .withdraw-part {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px;
+      background: rgba(28, 21, 18, 0.05);
+      border: 2px dashed var(--ink);
+      border-radius: 6px;
+    }
+
+    .withdraw-part[hidden] {
+      display: none;
+    }
+
+    .withdraw-part-label {
+      font-family: var(--cond);
+      font-weight: 700;
+      font-size: 0.85rem;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--stamp);
+    }
+
+    .withdraw-part-input {
+      width: 100%;
+      padding: 10px 12px;
+      font-family: 'Courier New', monospace;
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--ink);
+      background: var(--paper);
+      border: 2px solid var(--ink);
+      border-radius: 4px;
+    }
+
+    .withdraw-part-input:focus {
+      outline: 2px solid var(--cobalt);
+      outline-offset: 1px;
+    }
+
+    .withdraw-part-error {
+      font-family: var(--cond);
+      font-size: 0.9rem;
+      color: var(--blues-red);
+    }
+
+    .withdraw-part-error[hidden] {
+      display: none;
+    }
+
+    .withdraw-part-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .withdraw-part-actions .btn {
+      flex: 1 1 auto;
+      padding: 10px 14px;
+      font-size: 0.95rem;
+    }
+
     .r-foot {
       text-align: center;
       margin-top: 20px;
@@ -496,6 +562,54 @@ export class WhiskitoPanel extends WhiskitoElement {
               <i data-lucide="banknote"></i> Retirar todo
             </button>
 
+            <button
+              id="withdrawPartButton"
+              class="btn btn-block"
+              type="button"
+              data-attr="hidden:withdrawPartButtonHidden; disabled:cannotWithdraw"
+            >
+              Retirar una parte
+            </button>
+
+            <div
+              class="withdraw-part"
+              id="withdrawPart"
+              data-attr="hidden:withdrawPartHidden"
+            >
+              <label class="withdraw-part-label" for="withdrawAmount"
+                >Monto a retirar (ETH)</label
+              >
+              <input
+                id="withdrawAmount"
+                class="withdraw-part-input"
+                type="number"
+                step="any"
+                min="0"
+                inputmode="decimal"
+                placeholder=""
+                aria-describedby="withdrawPartError"
+              />
+              <p
+                class="withdraw-part-error"
+                id="withdrawPartError"
+                data-text="withdrawPartErrorText"
+                data-attr="hidden:withdrawPartErrorHidden"
+              ></p>
+              <div class="withdraw-part-actions">
+                <button
+                  id="withdrawConfirmButton"
+                  class="btn btn-primary"
+                  type="button"
+                  data-attr="disabled:withdrawConfirmDisabled"
+                >
+                  Confirmar retiro
+                </button>
+                <button id="withdrawCancelButton" class="btn" type="button">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+
             <p
               class="withdraw-status"
               id="withdrawStatus"
@@ -526,6 +640,10 @@ export class WhiskitoPanel extends WhiskitoElement {
 
   #donations = [];
   #wired = false;
+  /** La fila de retiro parcial está desplegada. */
+  #partOpen = false;
+  /** Lo escrito en el input, en ETH como texto (vacío = todavía nada). */
+  #amountText = "";
 
   /** Balance en ETH, como texto. */
   get balanceEth() {
@@ -589,12 +707,36 @@ export class WhiskitoPanel extends WhiskitoElement {
     return this.owner ? `${this.owner.slice(0, 6)}...${this.owner.slice(-4)}` : "";
   }
 
+  /** El monto escrito, como número en ETH. `NaN` si no es un número. */
+  get #amountValue() {
+    const text = this.#amountText.trim();
+    if (text === "") return NaN;
+    const value = Number(text);
+    return Number.isFinite(value) ? value : NaN;
+  }
+
+  /**
+   * El veredicto del monto escrito, como texto de error. Vacío = se puede
+   * confirmar. Es UI, no autoridad: el contrato revierte solo si el monto no
+   * cierra, pero acá se avisa antes de pedir la firma.
+   */
+  get #amountError() {
+    const amount = this.#amountValue;
+    if (!(amount > 0)) return "El monto tiene que ser mayor que 0";
+    if (amount > Number(this.balanceEth)) {
+      return "No podés retirar más de lo que tenés";
+    }
+    return "";
+  }
+
   /** Valores a pintar (hook de pintado de la base). */
   get state() {
     const isOwnerViewer = isOwner(this.viewer, this.owner);
     const hasBalance = Number(this.balanceEth) > 0;
     const { withdrawStatus, withdrawMessage } = this;
     const ownerShort = this.#ownerShort;
+    const partOpen = this.#partOpen;
+    const amountError = this.#amountError;
     return {
       balanceEth: this.balanceEth,
       balanceUsd: `≈ $${this.balanceUsd} USD`,
@@ -613,11 +755,24 @@ export class WhiskitoPanel extends WhiskitoElement {
       isWithdrawSuccess: withdrawStatus === "success",
       isWithdrawError: withdrawStatus === "error",
       withdrawText: withdrawMessage !== "" ? withdrawMessage : WITHDRAW_LABELS[withdrawStatus] ?? "",
+      // Retiro parcial: la fila se despliega, el botón que la abre se esconde
+      // mientras está abierta, y el veredicto del monto se pinta sólo con la
+      // fila abierta (el input nace vacío, y vacío es inválido a propósito).
+      withdrawPartHidden: !partOpen,
+      withdrawPartButtonHidden: !isOwnerViewer || partOpen,
+      withdrawPartErrorHidden: !(partOpen && amountError !== ""),
+      withdrawPartErrorText: amountError,
+      withdrawConfirmDisabled: !(partOpen && amountError === ""),
     };
   }
 
   /** Pinta la lista de donaciones: lo que los marcadores no cubren. */
   render(state) {
+    // El placeholder es el saldo disponible: el input nace vacío porque el monto
+    // lo escribe la persona, no la isla.
+    const input = this.root.querySelector("#withdrawAmount");
+    if (input) input.placeholder = this.balanceEth;
+
     const list = this.root.querySelector("#donationsList");
     const itemTemplate = this.root.querySelector("template[data-item]");
     if (!list || !itemTemplate) return;
@@ -633,16 +788,63 @@ export class WhiskitoPanel extends WhiskitoElement {
     list.replaceChildren(...rows);
   }
 
+  /** Despliega la fila de retiro parcial, con el input en blanco. */
+  #openWithdrawPart() {
+    this.#partOpen = true;
+    this.#clearAmount();
+    this.update();
+    this.root.querySelector("#withdrawAmount")?.focus();
+  }
+
+  /** Colapsa la fila y limpia el input (el error se deriva del monto). */
+  #closeWithdrawPart() {
+    this.#partOpen = false;
+    this.#clearAmount();
+    this.update();
+  }
+
+  /** Vacía el input: su valor vive en el DOM y en `#amountText`. */
+  #clearAmount() {
+    this.#amountText = "";
+    const input = this.root.querySelector("#withdrawAmount");
+    if (input) input.value = "";
+  }
+
   connectedCallback() {
     super.connectedCallback();
     if (this.#wired) return;
     this.#wired = true;
+
     this.root.querySelector("#withdrawButton")?.addEventListener("click", () => {
       // La política la decide quien escucha: acá sólo se avisa, igual que en el
       // navbar. Deshabilitado no se emite nada (el botón ya está oculto si no
-      // sos el dueño).
+      // sos el dueño). Sin monto en el `detail`: retiro TOTAL.
       if (this.state.cannotWithdraw) return;
-      this.emit("whiskito:withdraw-request");
+      this.emit("whiskito:withdraw-request", { amount: null });
     });
+
+    this.root
+      .querySelector("#withdrawPartButton")
+      ?.addEventListener("click", () => {
+        if (this.state.cannotWithdraw) return;
+        this.#openWithdrawPart();
+      });
+
+    this.root.querySelector("#withdrawAmount")?.addEventListener("input", (event) => {
+      this.#amountText = event.target.value;
+      this.update();
+    });
+
+    this.root
+      .querySelector("#withdrawConfirmButton")
+      ?.addEventListener("click", () => {
+        if (this.state.withdrawConfirmDisabled) return;
+        // El monto va como texto decimal en ETH: `withdraw()` lo convierte.
+        this.emit("whiskito:withdraw-request", { amount: this.#amountText });
+      });
+
+    this.root
+      .querySelector("#withdrawCancelButton")
+      ?.addEventListener("click", () => this.#closeWithdrawPart());
   }
 }

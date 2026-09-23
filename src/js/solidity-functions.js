@@ -93,10 +93,20 @@ export async function readDonations(professionalAddress) {
   }));
 }
 
+/**
+ * El balance disponible de `address`, ya en ETH como texto.
+ *
+ * Es la ÚNICA lectura de `balances`: la usan el portfolio de la página y el
+ * modal "Mi Panel" (que muestra el balance de la cuenta conectada). Dos lecturas
+ * del mismo dato en dos lugares es justamente lo que hacía que el modal pudiera
+ * quedar mostrando un saldo viejo.
+ */
+export async function readBalance(address) {
+  return formatEther(await readContract("balances", [address]));
+}
+
 export async function readPortfolio(professionalAddress) {
-  const balanceEth = formatEther(
-    await readContract("balances", [professionalAddress])
-  );
+  const balanceEth = await readBalance(professionalAddress);
   const ethPrice = await readEthPrice();
   return {
     balanceEth,

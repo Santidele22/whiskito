@@ -95,6 +95,30 @@
         try {
           const win = frameNuevo.contentWindow;
           const doc = win.document;
+          // El MISMO módulo de la frontera que usa la app, para interactuar con
+          // las islas por su API (y no por el DOM del documento): es el equivalente
+          // de `main.js` inyectando datos.
+          const islandsWin = await import("/src/js/islands.js");
+          // El camino PÚBLICO de lectura: el mismo que usa el flujo para pintar
+          // el panel (no se toca el DOM de la isla a mano).
+          // Las islas y su frontera (islands.js) viven en el realm de la app, que
+          // acá adentro es OTRO: los módulos de este harness corren en la página
+          // de afuera (el iframe tiene su propio importmap y su propio grafo).
+          // Así que lo que se pide es en SU realm, con `win.eval` (mismo origen),
+          // y la respuesta se serializa: es darle a la app las propiedades que le
+          // daría su propio `main.js`, no tocarle el DOM desde afuera.
+          const enLaApp = async (codigo, arg) => {
+            const cuerpo = `(async () => { const arg = ${JSON.stringify(arg)}; ${codigo} })()`;
+            const res = await win.eval(cuerpo);
+            if (res && res.__error) throw new Error(res.__error);
+            return res ? res.valor : undefined;
+          };
+          const cargarPanel = async (dir) => enLaApp(
+            `const islands = await import("/src/js/islands.js");
+             const { readPortfolio } = await import("/src/js/solidity-functions.js");
+             islands.showPortfolio(await readPortfolio(arg));`,
+            dir,
+          );
           const origWin = frameOriginal.contentWindow;
           const origDoc = origWin.document;
 
@@ -640,6 +664,372 @@
           panel.balanceEth = "0"; // el panel vuelve al estado que dejó el retiro real
           await sleep(200);
 
+          // ── W. RETIRO PARCIAL (panel del backstage) ───────────────────
+          // El retiro parcial es un camino nuevo: el evento
+          // `whiskito:withdraw-request` viaja con `detail.amount`, y con un
+          // string decimal en ETH tiene que terminar en `withdraw(uint256)`
+          // (selector 0x2e1a7d4d) con el monto en wei. Nada de esto lo ejercía
+          // el harness: sólo había retiro TOTAL.
+          //
+          // La isla es UI, no autoridad: valida ANTES de pedir la firma. Y el
+          // oráculo sigue siendo la chain (`balances`), no lo que la UI dice.
+
+          // Los dos helpers que faltaban: el monto en wei como texto decimal
+          // (independiente del `formatEther` de la app) y el techo de la firma.
+          const weiAeth = (wei) => {
+            const entero = wei / 10n ** 18n;
+            const dec = (wei % 10n ** 18n).toString().padStart(18, "0").replace(/0+$/, "");
+            return dec ? `${entero}.${dec}` : `${entero}`;
+          };
+          const paramDe = (data) => (data && data.length >= 10 ? BigInt("0x" + data.slice(10, 74)) : null);
+          const firmasDe = (selector) => pedidos.filter(
+            (p) => p.method === "eth_sendTransaction" && p.params?.[0]?.to?.toLowerCase() === CONTRATO.toLowerCase() &&
+              String(p.params?.[0]?.data ?? "").startsWith(selector),
+          );
+          // `elementFromPoint` sobre el shadow root: devuelve lo que hay ARRIBA
+          // de verdad. Un `elemento.click()` programático pasa igual con el botón
+          // tapado, así que no prueba que una persona pueda clickearlo.
+          const alcanzableEn = (root, el) => {
+            if (!el || el.getClientRects().length === 0) return false;
+            const r = el.getBoundingClientRect();
+            const arriba = root.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            return arriba === el || el.contains(arriba);
+          };
+          const centroDe = (el) => {
+            if (!el) return "sin caja";
+            const r = el.getBoundingClientRect();
+            return `[${[r.left, r.top, r.width, r.height].map(Math.round).join(",")}]`;
+          };
+          // Escribe en el input como lo haría una persona. Devuelve lo que el
+          // navegador dejó adentro: un `type=number` puede RECHAZAR el texto
+          // (`"0,5"`) y eso también es un veredicto de la UI.
+          const escribirMonto = async (inputEl, texto) => {
+            typeInto(inputEl, texto);
+            await sleep(120);
+            return inputEl.value;
+          };
+
+          const panelWithdrawButton = panelRoot.querySelector("#withdrawButton");
+          const panelPartButton = panelRoot.querySelector("#withdrawPartButton");
+          const panelPartRow = panelRoot.querySelector("#withdrawPart");
+          const panelAmount = panelRoot.querySelector("#withdrawAmount");
+          const panelPartError = panelRoot.querySelector("#withdrawPartError");
+          const panelConfirm = panelRoot.querySelector("#withdrawConfirmButton");
+          const panelCancel = panelRoot.querySelector("#withdrawCancelButton");
+          const panelWithdrawStatus = panelRoot.querySelector("#withdrawStatus");
+
+          check("W1 el panel tiene las dos vías de retiro y la fila nace colapsada",
+            Boolean(panelWithdrawButton && panelPartButton && panelPartRow && panelAmount && panelPartError && panelConfirm && panelCancel && panelWithdrawStatus) &&
+              panelPartRow.hidden === true,
+            `nodos=${[panelWithdrawButton, panelPartButton, panelPartRow, panelAmount, panelPartError, panelConfirm, panelCancel, panelWithdrawStatus].filter(Boolean).length}/8 filaHidden=${panelPartRow?.hidden}`);
+
+          // ── Estado del test: hay plata que retirar ────────────────────
+          // H1 y A4 dejaron el saldo del dueño en CERO. El retiro parcial sin
+          // saldo no se puede ejercitar, así que el test se prepara el suyo:
+          // una donación real más (la firma el nodo, no la wallet falsa).
+          const fund2 = await fetch("http://127.0.0.1:8545", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0", id: 1, method: "eth_sendTransaction",
+              params: [{
+                from: DONANTE_ANVIL, to: CONTRATO,
+                value: "0x" + (3000000000000000n).toString(16), // 0.003 ETH
+                data: "0x23024408" + DUEÑO.slice(2).padStart(64, "0"), // fund(DUEÑO)
+              }],
+            }),
+          }).then((r) => r.json());
+          check("W2 el test se preparó su propio saldo (donación real, control de esta prueba)",
+            String(fund2.result ?? "").startsWith("0x"), JSON.stringify(fund2).slice(0, 160));
+          await sleep(700);
+          const saldoAntes = await saldoOnChain(DUEÑO);
+
+          // El panel se relee de la chain como en una conexión (la isla no lee
+          // nada por su cuenta: recibe los datos por propiedades).
+          await cargarPanel(DUEÑO);
+          await sleep(300);
+          check("W3 con saldo real, el botón de retirar todo queda habilitado",
+            panelWithdrawButton.hidden === false && panelWithdrawButton.disabled === false &&
+              panel.balanceEth === saldoAntes && panel.balanceEth !== "0",
+            `chain=${saldoAntes} panel=${panel.balanceEth} hidden=${panelWithdrawButton.hidden} disabled=${panelWithdrawButton.disabled}`);
+
+          // 1. Las dos vías existen, son VISIBLES y alcanzables con el mouse.
+          //    El recibo está rotado 1.2deg: el hit test es la única prueba de
+          //    que un elemento no quedó tapado por el orden de pintado.
+          panelWithdrawButton.scrollIntoView({ block: "center", behavior: "instant" });
+          await sleep(250);
+          check("W4 «Retirar todo» y «Retirar una parte» son alcanzables y visibles (no tapados)",
+            alcanzableEn(panelRoot, panelWithdrawButton) && alcanzableEn(panelRoot, panelPartButton) &&
+              panelWithdrawButton.hidden === false && panelPartButton.hidden === false,
+            `todo=${alcanzableEn(panelRoot, panelWithdrawButton)}${centroDe(panelWithdrawButton)} parte=${alcanzableEn(panelRoot, panelPartButton)}${centroDe(panelPartButton)} scrollY=${Math.round(win.scrollY)} ventana=${win.innerWidth}x${win.innerHeight}`);
+
+          // 2. «Retirar una parte» despliega la fila. El input nace VACÍO (el
+          //    monto lo escribe la persona) y su placeholder es el saldo.
+          panelPartButton.click();
+          await sleep(200);
+          check("W5 el click despliega la fila, esconde el botón que la abre y no firma nada",
+            panelPartRow.hidden === false && panelPartButton.hidden === true &&
+              firmasDe("0x2e1a7d4d").length === 0,
+            `filaHidden=${panelPartRow.hidden} botonHidden=${panelPartButton.hidden} filas=${firmasDe("0x2e1a7d4d").length}`);
+          check("W6 el input arranca vacío y con el saldo disponible de placeholder",
+            panelAmount.value === "" && panelAmount.placeholder === saldoAntes,
+            `value="${panelAmount.value}" placeholder="${panelAmount.placeholder}" saldo=${saldoAntes}`);
+          check("W7 vacío es inválido: el confirmar arranca deshabilitado",
+            panelConfirm.disabled === true &&
+              NORM(panelPartError.textContent) === "El monto tiene que ser mayor que 0" &&
+              panelPartError.hidden === false,
+            `disabled=${panelConfirm.disabled} error="${NORM(panelPartError.textContent)}" errorHidden=${panelPartError.hidden}`);
+          check("W8 el input, el confirmar y el cancelar son alcanzables de verdad",
+            alcanzableEn(panelRoot, panelAmount) && alcanzableEn(panelRoot, panelConfirm) && alcanzableEn(panelRoot, panelCancel),
+            `input=${alcanzableEn(panelRoot, panelAmount)}${centroDe(panelAmount)} confirmar=${alcanzableEn(panelRoot, panelConfirm)}${centroDe(panelConfirm)} cancelar=${alcanzableEn(panelRoot, panelCancel)}${centroDe(panelCancel)}`);
+
+          // 3. Fronteras de la validación.
+          await escribirMonto(panelAmount, "0");
+          check("W9 el monto 0 queda deshabilitado (no es un retiro)",
+            panelConfirm.disabled === true &&
+              NORM(panelPartError.textContent) === "El monto tiene que ser mayor que 0",
+            `disabled=${panelConfirm.disabled} error="${NORM(panelPartError.textContent)}"`);
+
+          // Más que el saldo: se cae el entero y también un pelo por encima.
+          const demasiado = weiAeth((BigInt(Math.round(Number(saldoAntes) * 1e9)) + 1n) * 10n ** 9n);
+          await escribirMonto(panelAmount, demasiado);
+          check("W10 más que el saldo queda deshabilitado y lo dice",
+            panelConfirm.disabled === true &&
+              NORM(panelPartError.textContent) === "No podés retirar más de lo que tenés" &&
+              panelPartError.hidden === false,
+            `monto=${demasiado} disabled=${panelConfirm.disabled} error="${NORM(panelPartError.textContent)}"`);
+
+          // Exactamente el saldo: es válido (el borde bueno).
+          await escribirMonto(panelAmount, saldoAntes);
+          check("W11 un monto igual al saldo habilita el confirmar y se lo quita de encima",
+            panelConfirm.disabled === false && panelPartError.hidden === true,
+            `monto=${saldoAntes} disabled=${panelConfirm.disabled} errorHidden=${panelPartError.hidden} error="${NORM(panelPartError.textContent)}"`);
+
+          // Textos que NO son un decimal limpio: ninguno puede terminar en un
+          // "éxito falso". El type=number puede rechazarlos (queda vacío) y la
+          // isla puede rechazarlos (queda inválido): lo que no puede pasar es
+          // que la app firme y reporte éxito con un monto que no es el escrito.
+          const MONTO = "0.001";
+          const MONTO_WEI = 1000000000000000n; // 0.001 ETH
+          const firmasRaras = firmasDe("0x2e1a7d4d").length;
+          const raros = [];
+          for (const texto of ["1e3", "0,5", "abc"]) {
+            panel.withdrawStatus = "idle";
+            panel.withdrawMessage = "";
+            const quedó = await escribirMonto(panelAmount, texto);
+            if (!panelConfirm.disabled) panelConfirm.click();
+            await sleep(250);
+            raros.push(`${texto}→"${quedó}"`);
+            // El navegador puede RECHAZAR el texto (queda vacío) o la isla puede
+            // rechazarlo (queda inválido): en los dos casos el confirmar tiene
+            // que estar apagado, no puede haber firma nueva, y el veredicto no
+            // puede haber quedado en "éxito".
+            check(`W12-«${texto}» un monto que no es un decimal limpio no termina en éxito`,
+              panelConfirm.disabled === true &&
+                /El monto tiene que ser mayor que 0|No podés retirar más de lo que tenés/.test(NORM(panelPartError.textContent)) &&
+                firmasDe("0x2e1a7d4d").length === firmasRaras &&
+                panel.withdrawStatus !== "success",
+              `escribí «${texto}» y quedó "«${quedó}»" disabled=${panelConfirm.disabled} error="${NORM(panelPartError.textContent)}" status=${panel.withdrawStatus} msg="${panel.withdrawMessage}" firmas=${firmasRaras}→${firmasDe("0x2e1a7d4d").length}`);
+          }
+          check("W12b ninguno de los montos raros dejó firma ni veredicto de éxito",
+            firmasDe("0x2e1a7d4d").length === firmasRaras && panel.withdrawStatus !== "success",
+            `casos=${raros.join(" ")} · firmas=${firmasRaras}→${firmasDe("0x2e1a7d4d").length} status=${panel.withdrawStatus}`);
+
+          // 4. Monto válido → UNA sola firma, con el selector de `withdraw` y el
+          //    monto en wei en los 32 bytes del argumento (no alcanza con mirar
+          //    el selector).
+          await escribirMonto(panelAmount, MONTO);
+          check("W13 con un monto válido el confirmar queda habilitado",
+            panelConfirm.disabled === false && panelPartError.hidden === true,
+            `disabled=${panelConfirm.disabled} error="${NORM(panelPartError.textContent)}"`);
+          const saldoAntesParcial = await saldoOnChain(DUEÑO);
+          const firmasParcialAntes = firmasDe("0x2e1a7d4d").length;
+          const firmasTotalesAntes = firmasDe("0x853828b6").length;
+          panelConfirm.click();
+          await sleep(3500); // firma + recibo real de anvil
+          const firmasParcial = firmasDe("0x2e1a7d4d");
+          const firma = firmasParcial[firmasParcial.length - 1];
+          const dataParcial = String(firma?.params?.[0]?.data ?? "");
+          check("W14 el retiro parcial firma UNA sola vez y contra el contrato",
+            firmasParcial.length === firmasParcialAntes + 1 &&
+              firma?.params?.[0]?.to?.toLowerCase() === CONTRATO.toLowerCase(),
+            `firmas ${firmasParcialAntes}→${firmasParcial.length} to=${firma?.params?.[0]?.to}`);
+          check("W15 y llama a withdraw(uint256), no a withdrawAll()",
+            dataParcial.startsWith("0x2e1a7d4d") && firmasDe("0x853828b6").length === firmasTotalesAntes,
+            `data=${dataParcial.slice(0, 74)} withdrawAll=${firmasTotalesAntes}→${firmasDe("0x853828b6").length}`);
+          check("W16 con el monto correcto en wei en el argumento (0.001 ETH = 1000000000000000 wei)",
+            paramDe(dataParcial) === MONTO_WEI,
+            `arg=${paramDe(dataParcial)} esperado=${MONTO_WEI} data=${dataParcial.slice(0, 74)}`);
+          check("W17 a withdraw no se le pasa ninguna dirección (el contrato usa balances[msg.sender])",
+            dataParcial.length === 74 && !dataParcial.toLowerCase().includes(DUEÑO.slice(2).toLowerCase()),
+            `len=${dataParcial.length} from=${firma?.params?.[0]?.from} data=${dataParcial}`);
+
+          // 5. El efecto on-chain es EXACTO: baja ese monto, ni más ni menos.
+          const saldoDespues = await saldoOnChain(DUEÑO);
+          const esperadoDespues = weiAeth(BigInt(Math.round(Number(saldoAntesParcial) * 1e9)) * 10n ** 9n - MONTO_WEI);
+          check("W18 el saldo de la chain bajó EXACTAMENTE el monto retirado",
+            saldoDespues === esperadoDespues && saldoDespues !== saldoAntesParcial,
+            `chain ${saldoAntesParcial}→${saldoDespues} esperado=${esperadoDespues}`);
+          check("W19 y el resto sigue disponible (no se vació la cuenta)",
+            Number(saldoDespues) > 0,
+            `chain=${saldoDespues}`);
+          check("W20 la UI del panel muestra el saldo nuevo, leído de la chain",
+            panel.balanceEth === saldoDespues,
+            `panel=${panel.balanceEth} chain=${saldoDespues}`);
+
+          // 7. El veredicto queda VISIBLE en la isla que lo disparó.
+          check("W21 el veredicto «¡Retirado!» queda visible en el panel",
+            panel.withdrawStatus === "success" && panel.withdrawMessage === "¡Retirado!" &&
+              panelWithdrawStatus.hidden === false &&
+              NORM(panelWithdrawStatus.textContent) === "¡Retirado!" &&
+              panelWithdrawStatus.classList.contains("is-success"),
+            `status=${panel.withdrawStatus} msg="${panel.withdrawMessage}" hidden=${panelWithdrawStatus.hidden} texto="${NORM(panelWithdrawStatus.textContent)}" clases=${panelWithdrawStatus.className}`);
+          const dashEspejo = doc.querySelector("whiskito-dashboard");
+          check("W21b el mismo veredicto se escribió en la otra isla (una sola verdad para dos islas)",
+            dashEspejo.withdrawStatus === "success" && dashEspejo.withdrawMessage === "¡Retirado!",
+            `dashboard=${dashEspejo.withdrawStatus} msg="${dashEspejo.withdrawMessage}"`);
+
+          // 6. Cancelar: colapsa la fila, limpia el input y no firma nada.
+          panelPartButton.click();
+          await sleep(200);
+          await escribirMonto(panelAmount, MONTO);
+          const firmasAntesCancelar = firmasDe("0x2e1a7d4d").length;
+          panelCancel.click();
+          await sleep(250);
+          check("W22 cancelar colapsa la fila, limpia el input y no firma nada",
+            panelPartRow.hidden === true && panelAmount.value === "" && panelPartButton.hidden === false &&
+              firmasDe("0x2e1a7d4d").length === firmasAntesCancelar &&
+              (await saldoOnChain(DUEÑO)) === saldoDespues,
+            `filaHidden=${panelPartRow.hidden} input="${panelAmount.value}" botonHidden=${panelPartButton.hidden} firmas=${firmasAntesCancelar}→${firmasDe("0x2e1a7d4d").length} chain=${await saldoOnChain(DUEÑO)}`);
+
+          // ── W23. SIMETRÍA: el mismo camino desde el modal «Mi Panel» ───
+          // Otra vez hace falta saldo: se prepara con otra donación real (0.002).
+          const fund3 = await fetch("http://127.0.0.1:8545", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0", id: 1, method: "eth_sendTransaction",
+              params: [{
+                from: DONANTE_ANVIL, to: CONTRATO,
+                value: "0x" + (2000000000000000n).toString(16), // 0.002 ETH
+                data: "0x23024408" + DUEÑO.slice(2).padStart(64, "0"),
+              }],
+            }),
+          }).then((r) => r.json());
+          check("W23 el test se preparó saldo para el modal (donación real, control de esta prueba)",
+            String(fund3.result ?? "").startsWith("0x"), JSON.stringify(fund3).slice(0, 160));
+          await sleep(700);
+
+          navRoot.querySelector("#dashboardButton").click();
+          await sleep(1500);
+          const dashHost = doc.querySelector("whiskito-dashboard"); // la isla del modal "Mi Panel"
+          const dashHostRoot = dashHost.shadowRoot ?? dashHost;
+          const dashHostPartButton = dashHostRoot.querySelector("#withdrawPartButton");
+          const dashHostWithdrawButton = dashHostRoot.querySelector("#withdrawButton");
+          const dashHostPartRow = dashHostRoot.querySelector("#withdrawPart");
+          const dashHostAmount = dashHostRoot.querySelector("#withdrawAmount");
+          const dashHostPartError = dashHostRoot.querySelector("#withdrawPartError");
+          const dashHostConfirm = dashHostRoot.querySelector("#withdrawConfirmButton");
+          const dashHostCancel = dashHostRoot.querySelector("#withdrawCancelButton");
+          const dashHostWithdrawStatus = dashHostRoot.querySelector("#withdrawStatus");
+          const dashHostBalance = dashHostRoot.querySelector("#dashBalance");
+          const saldoModal = await saldoOnChain(DUEÑO);
+          check("W24 el modal «Mi Panel» abre con el saldo fresco de la chain y las dos vías de retiro",
+            dashHost.open === true && dashHost.balanceEth === saldoModal && Number(saldoModal) > 0 &&
+              Boolean(dashHostWithdrawButton && dashHostPartButton && dashHostPartRow && dashHostAmount && dashHostConfirm && dashHostCancel) &&
+              dashHostWithdrawButton.hidden === false && dashHostPartButton.hidden === false &&
+              NORM(dashHostBalance.textContent) === saldoModal,
+            `open=${dashHost.open} panel=${dashHost.balanceEth} chain=${saldoModal} pintado="${NORM(dashHostBalance?.textContent)}" hidden=${dashHostWithdrawButton?.hidden}/${dashHostPartButton?.hidden}`);
+          dashHostWithdrawButton.scrollIntoView({ block: "center", behavior: "instant" });
+          await sleep(250);
+          check("W25 los dos botones del modal son alcanzables y visibles (no tapados)",
+            alcanzableEn(dashHostRoot, dashHostWithdrawButton) && alcanzableEn(dashHostRoot, dashHostPartButton),
+            `todo=${alcanzableEn(dashHostRoot, dashHostWithdrawButton)}${centroDe(dashHostWithdrawButton)} parte=${alcanzableEn(dashHostRoot, dashHostPartButton)}${centroDe(dashHostPartButton)}`);
+
+          dashHostPartButton.click();
+          await sleep(200);
+          check("W26 el click despliega la fila en el modal, con el input vacío y el confirmar apagado",
+            dashHostPartRow.hidden === false && dashHostAmount.value === "" &&
+              dashHostAmount.placeholder === saldoModal && dashHostConfirm.disabled === true,
+            `filaHidden=${dashHostPartRow.hidden} input="${dashHostAmount.value}" placeholder="${dashHostAmount.placeholder}" disabled=${dashHostConfirm.disabled}`);
+          check("W27 el input, el confirmar y el cancelar del modal son alcanzables",
+            alcanzableEn(dashHostRoot, dashHostAmount) && alcanzableEn(dashHostRoot, dashHostConfirm) && alcanzableEn(dashHostRoot, dashHostCancel),
+            `input=${alcanzableEn(dashHostRoot, dashHostAmount)}${centroDe(dashHostAmount)} confirmar=${alcanzableEn(dashHostRoot, dashHostConfirm)}${centroDe(dashHostConfirm)} cancelar=${alcanzableEn(dashHostRoot, dashHostCancel)}${centroDe(dashHostCancel)}`);
+
+          await escribirMonto(dashHostAmount, "0");
+          const errorCeroModal = NORM(dashHostPartError.textContent);
+          const demasiadoModal = weiAeth((BigInt(Math.round(Number(saldoModal) * 1e9)) + 1n) * 10n ** 9n);
+          await escribirMonto(dashHostAmount, demasiadoModal);
+          check("W28 en el modal: 0 y un monto mayor al saldo quedan deshabilitados y avisan",
+            dashHostConfirm.disabled === true && errorCeroModal === "El monto tiene que ser mayor que 0" &&
+              NORM(dashHostPartError.textContent) === "No podés retirar más de lo que tenés" &&
+              dashHostPartError.hidden === false,
+            `0→"${errorCeroModal}" ${demasiadoModal}→"${NORM(dashHostPartError.textContent)}" disabled=${dashHostConfirm.disabled}`);
+          await escribirMonto(dashHostAmount, saldoModal);
+          check("W29 en el modal, exactamente el saldo habilita el confirmar",
+            dashHostConfirm.disabled === false && dashHostPartError.hidden === true,
+            `monto=${saldoModal} disabled=${dashHostConfirm.disabled} error="${NORM(dashHostPartError.textContent)}"`);
+
+          // 9. Retiro desde el modal: firma correcta, saldo fresco y el modal
+          //    SIGUE ABIERTO (no se cierra ni queda con el saldo de antes).
+          const MONTO_MODAL = "0.001";
+          await escribirMonto(dashHostAmount, MONTO_MODAL);
+          const saldoAntesModal = await saldoOnChain(DUEÑO);
+          const firmasModalAntes = firmasDe("0x2e1a7d4d").length;
+          const firmasTotalesAntesModal = firmasDe("0x853828b6").length;
+          dashHostConfirm.click();
+          await sleep(4000);
+          const firmasModal = firmasDe("0x2e1a7d4d");
+          const firmaModal = firmasModal[firmasModal.length - 1];
+          const dataModal = String(firmaModal?.params?.[0]?.data ?? "");
+          check("W30 el retiro desde el modal firma UNA vez withdraw(uint256) con el monto en wei",
+            firmasModal.length === firmasModalAntes + 1 && dataModal.startsWith("0x2e1a7d4d") &&
+              paramDe(dataModal) === MONTO_WEI && firmasDe("0x853828b6").length === firmasTotalesAntesModal,
+            `firmas ${firmasModalAntes}→${firmasModal.length} arg=${paramDe(dataModal)} withdrawAll=${firmasTotalesAntesModal}→${firmasDe("0x853828b6").length}`);
+          const saldoDespuesModal = await saldoOnChain(DUEÑO);
+          const esperadoModal = weiAeth(BigInt(Math.round(Number(saldoAntesModal) * 1e9)) * 10n ** 9n - MONTO_WEI);
+          check("W31 el saldo de la chain bajó EXACTAMENTE el monto retirado desde el modal",
+            saldoDespuesModal === esperadoModal && saldoDespuesModal !== saldoAntesModal,
+            `chain ${saldoAntesModal}→${saldoDespuesModal} esperado=${esperadoModal}`);
+          await sleep(1200); // el flujo relee el portfolio y, si el modal está abierto, lo recarga
+          check("W32 el modal SIGUE ABIERTO después del retiro",
+            dashHost.open === true && dashHostRoot.querySelector("#overlay")?.hidden === false,
+            `open=${dashHost.open} overlayHidden=${dashHostRoot.querySelector("#overlay")?.hidden}`);
+          check("W33 y quedó con el saldo fresco de la chain, no con el de antes",
+            dashHost.balanceEth === saldoDespuesModal && dashHost.balanceEth !== saldoAntesModal &&
+              NORM(dashHostBalance.textContent) === saldoDespuesModal,
+            `panel=${dashHost.balanceEth} pintado="${NORM(dashHostBalance.textContent)}" chain=${saldoDespuesModal} (antes ${saldoAntesModal})`);
+          check("W34 el veredicto queda visible en la isla del modal (y en la otra también)",
+            dashHost.withdrawStatus === "success" && NORM(dashHostWithdrawStatus.textContent) === "¡Retirado!" &&
+              dashHostWithdrawStatus.hidden === false &&
+              panel.withdrawStatus === "success" && NORM(panelWithdrawStatus.textContent) === "¡Retirado!" &&
+              panelWithdrawStatus.hidden === false,
+            `modal=${dashHost.withdrawStatus}"${NORM(dashHostWithdrawStatus.textContent)}"hidden=${dashHostWithdrawStatus.hidden} panel=${panel.withdrawStatus}"${NORM(panelWithdrawStatus.textContent)}"hidden=${panelWithdrawStatus.hidden}`);
+
+          // Cancelar en el modal: colapsa, limpia y no firma.
+          dashHostPartButton.click();
+          await sleep(200);
+          await escribirMonto(dashHostAmount, MONTO_MODAL);
+          const firmasAntesCancelarModal = firmasDe("0x2e1a7d4d").length;
+          dashHostCancel.click();
+          await sleep(250);
+          check("W35 cancelar en el modal colapsa la fila, limpia el input y no firma nada",
+            dashHostPartRow.hidden === true && dashHostAmount.value === "" && dashHostPartButton.hidden === false &&
+              firmasDe("0x2e1a7d4d").length === firmasAntesCancelarModal &&
+              (await saldoOnChain(DUEÑO)) === saldoDespuesModal,
+            `filaHidden=${dashHostPartRow.hidden} input="${dashHostAmount.value}" botonHidden=${dashHostPartButton.hidden} firmas=${firmasAntesCancelarModal}→${firmasDe("0x2e1a7d4d").length}`);
+
+          // Se cierra el modal (la ×) y se deja el estado como estaba: el
+          // resto de los bloques sigue con el panel en cero.
+          dashHostRoot.querySelector("#closeButton").click();
+          await sleep(400);
+          check("W36 la × cierra el modal y avisa al flujo (no queda abierto tapando el panel)",
+            dashHost.open === false && dashHostRoot.querySelector("#overlay")?.hidden === true,
+            `open=${dashHost.open} overlayHidden=${dashHostRoot.querySelector("#overlay")?.hidden}`);
+          panel.balanceEth = "0";
+          await sleep(200);
+
+
           check("H1f el botón de cerrar lo cierra", sharePanel?.hidden === true, `hidden=${sharePanel?.hidden}`);
           shareTrigger.click();
           await sleep(600);
@@ -857,6 +1247,18 @@
           check("R7b con ?demo=0 la tarjeta no lleva el aviso de demo",
             card2.shadowRoot.querySelector(".card-demo")?.hidden === true,
             `hidden=${card2.shadowRoot.querySelector(".card-demo")?.hidden}`);
+
+          // La otra mitad de la simetría: si no se puede retirar, NINGUNA de las
+          // dos islas ofrece las dos vías (ni la de todo ni la de a partes). El
+          // modal nace con `can-withdraw` en falso a propósito: es opt-in.
+          const dashRoot2 = doc2.querySelector("whiskito-dashboard").shadowRoot;
+          check("R6b el donante tampoco tiene «Retirar una parte» en ninguna de las dos islas",
+            panelRoot2.querySelector("#withdrawPartButton").hidden === true &&
+              panelRoot2.querySelector("#withdrawPart").hidden === true &&
+              dashRoot2.querySelector("#withdrawButton").hidden === true &&
+              dashRoot2.querySelector("#withdrawPartButton").hidden === true &&
+              dashRoot2.querySelector("#withdrawPart").hidden === true,
+            `panel=${panelRoot2.querySelector("#withdrawButton").hidden}/${panelRoot2.querySelector("#withdrawPartButton").hidden}/${panelRoot2.querySelector("#withdrawPart").hidden} modal=${dashRoot2.querySelector("#withdrawButton").hidden}/${dashRoot2.querySelector("#withdrawPartButton").hidden}/${dashRoot2.querySelector("#withdrawPart").hidden}`);
 
           // Donar: el calldata tiene que llevar la dirección del DUEÑO, y salir
           // de la wallet del DONANTE. Esa es la separación, al nivel del byte.
