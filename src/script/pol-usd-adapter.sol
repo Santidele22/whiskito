@@ -9,26 +9,12 @@ import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interf
 ///         `LINK / USD` (8 decimales) y `LINK / MATIC` (18 decimales). MATIC y POL son
 ///         el mismo activo (Polygon renombró MATIC a POL; los feeds conservan el nombre
 ///         viejo), así que:
-///
 ///             POL/USD = (LINK/USD) / (LINK/MATIC)
-///
-///         El cociente sale con los decimales del feed de USD (8, la convención de los
-///         feeds de USD), así que el resultado se escala a 8 decimales y es
-///         intercambiable con cualquier otro aggregator de USD: `Fund` lo recibe por
-///         constructor igual que recibía el feed ETH/USD y no cambia su interfaz.
-/// @dev `updatedAt` que se devuelve es el **mínimo** de las dos patas: el precio
-///      compuesto existe recién cuando la pata más vieja se actualizó. Devolver el
-///      máximo diría "fresco" con una pata vieja adentro. El compuesto **no tiene ronda
-///      propia**, así que `roundId` y `answeredInRound` se toman de la pata de USD: son
-///      la identidad del feed que manda en la valuación, no la de una ronda compuesta.
 contract PolUsdAdapter is AggregatorV3Interface {
     AggregatorV3Interface internal immutable linkUsdFeed;
     AggregatorV3Interface internal immutable linkMaticFeed;
 
-    /// @dev Decimales de cada pata, leídos en el constructor (nunca asumidos), igual que
-    ///      hace `Fund` con su propio feed. `priceScaleExponent` es el exponente de escala
-    ///      que deja el cociente en los 8 decimales del resultado, y por eso depende de
-    ///      los decimales de las DOS patas.
+    /// @dev Decimales de cada pata, leídos en el constructor (nunca asumidos)
     uint8 internal immutable linkUsdDecimals;
     uint8 internal immutable linkMaticDecimals;
     uint256 internal immutable priceScaleExponent;
@@ -64,9 +50,6 @@ contract PolUsdAdapter is AggregatorV3Interface {
         priceScaleExponent = uint256(linkMaticDecimals) + 8 - uint256(linkUsdDecimals);
     }
 
-    /// @inheritdoc AggregatorV3Interface
-    /// @dev Convención de los feeds de USD: 8 decimales, para que sea intercambiable con
-    ///      el feed ETH/USD que `Fund` esperaba.
     function decimals() external pure override returns (uint8) {
         return 8;
     }
@@ -103,8 +86,6 @@ contract PolUsdAdapter is AggregatorV3Interface {
         updatedAt = usdUpdatedAt < maticUpdatedAt ? usdUpdatedAt : maticUpdatedAt;
 
         // POL/USD = (LINK/USD) / (LINK/MATIC), dejado en 8 decimales:
-        //   answer = usdPrice * 10**(linkMaticDecimals + 8 - linkUsdDecimals) / maticPrice
-        // La división entera va al final, para no arrastrar el redondeo.
         answer = int256((usdPrice * (10 ** priceScaleExponent)) / maticPrice);
 
         // El compuesto no tiene ronda propia: la identidad es la de la pata de USD.

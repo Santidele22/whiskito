@@ -17,16 +17,13 @@ let activeNetwork = effectiveNetwork(DEFAULT_CHAIN_ID);
 
 /** Handlers registrados para `accountsChanged` (ver `onWalletAccountsChange`). */
 const accountChangeHandlers = new Set();
+
 /**
  * ¿Ya hay UNA suscripción a `accountsChanged`? Sin esta bandera, cada handler
  * registrado agregaría otra: la wallet avisaría tantas veces como registros haya.
  */
 let accountsSubscribed = false;
 
-/**
- * La moneda nativa de la red. Cada entrada de `NETWORKS` (config.js) la declara
- * —anvil usa Ether, Amoy usa POL—; si una red no la declara, se cae a Ether/ETH.
- */
 const DEFAULT_NATIVE_CURRENCY = { name: "Ether", symbol: "ETH", decimals: 18 };
 
 export function chainFromConfig(config) {

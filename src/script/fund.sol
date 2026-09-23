@@ -42,7 +42,6 @@ contract Fund {
 
     //EVENTS
     event Funded(address indexed donor, address indexed professional, uint256 ethAmount, uint256 usdValue);
-
     event Withdrawn(address indexed professional, uint256 amount);
 
     constructor(address _priceFeedAddress) {
