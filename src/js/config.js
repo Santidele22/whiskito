@@ -12,55 +12,23 @@
 export const NETWORKS = {
   31337: {
     name: "anvil",
-    // Direcciones del deploy local: salen de src/script/deploy.sol.
-    // Las verifica .refactor-baseline/check-config.mjs contra el broadcast.
     fund: "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
-    // Primer bloque en el que existe el contrato de esta red: el piso del rango
-    // con el que se leen los eventos `Funded` del panel (ver
-    // `readDonationHistory`). Es un hecho del deploy, como `fund`. Acá es 0
-    // porque el deploy local sale del bloque 0 de un anvil recién arrancado.
     deployBlock: 0,
     priceFeed: "0x5fbdb2315678afecb367f032d93f642f64180aa3",
     rpc: "http://127.0.0.1:8545",
     explorer: null,
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    // A quién le donan en esta red (ver `professionalFor`): la cuenta 0 de
-    // anvil, que es la que despliega el contrato local. No cambiar: el harness
-    // local se comporta como dueño con esta cuenta.
     professional: "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
   },
 
   80002: {
     name: "amoy",
-    // Amoy es Polygon: el nativo es POL, no ETH (el feed ETH/USD es sólo el
-    // oráculo del precio de la donación).
     nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
-    // Se completa después del deploy con `bun run deploy:amoy`: la address la
-    // imprime el script (y la pega acá el orquestador). No se inventa.
     fund: "0xc92b0cAB9Bd6247250d483613B804593c7f3fEF8",
-    // Primer bloque en el que existe el contrato en esta red: es el piso del
-    // rango de eventos `Funded` (medido: el deploy entró en este bloque). Sin
-    // él, el panel pediría desde el bloque 0 —48 millones de bloques atrás— y el
-    // RPC público rechaza ese rango.
     deployBlock: 48371056,
-    // Feed ETH / USD real de Chainlink en Amoy (verificado en la chain:
-    // description() = "ETH / USD", decimals() = 8). Es la constante
-    // AMOY_ETH_USD_FEED de src/script/deploy-amoy.sol.
     priceFeed: "0xF0d50568e3A7e8259E16663972b11910F89BD8e7",
-    // Medido con `eth_getLogs` (evento `Funded` del contrato real) contra RPC
-    // públicos de Amoy: el plan free de `drpc` acepta a lo sumo 100 bloques por
-    // pedido (un rango de 200 ya lo rechaza con HTTP 400 code 35, y `fromBlock: 0`
-    // también; su mensaje —"ranges over 10000 blocks"— miente), y la app lee los
-    // eventos `Funded` de "Mi Panel" al abrir el modal, así que con drpc la tabla
-    // quedaría vacía en el sitio publicado. publicnode sí los sirve, hasta 10.000
-    // bloques de diferencia por pedido (medido: 10.001 bloques andan, 10.002 no;
-    // thirdweb corta en 1.000). De ahí este RPC.
     rpc: "https://polygon-amoy-bor-rpc.publicnode.com",
     explorer: "https://amoy.polygonscan.com",
-    // A quién le donan en esta red (ver `professionalFor`): la cuenta del
-    // keystore `deployer` de Foundry (`cast wallet import deployer
-    // --interactive`), que es la que despliega el contrato en Amoy. Es la que
-    // recibe las donaciones y la única que puede retirarlas.
     professional: "0x74ffced34e75fb4b31f18889fa2a4de66be34523",
   },
 
