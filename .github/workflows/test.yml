@@ -11,6 +11,7 @@ jobs:
   check:
     name: Foundry project
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -41,4 +42,180 @@ jobs:
         run: forge build --sizes
 
       - name: Run Forge tests
+        # `test/` está vacío, así que hoy esto pasa trivialmente. Se deja porque es
+        # la puerta del contrato: el día que haya tests de forge, ya están corriendo.
         run: forge test -vvv
+
+      # ── Frontend: lo rápido, sin navegador (ver AGENTS.md §3) ──────────────
+
+      - name: Check JS syntax
+        # El paquete es `type: module`, así que `node --check` analiza cada archivo
+        # como módulo. Caza el error clásico del proyecto: un backtick dentro de un
+        # comentario de `static template`/`static styles` cierra el template literal,
+        # el módulo no carga, `components/index.js` no registra ninguna isla y el
+        # harness falla con "card is null", que parece un problema de carga.
+        run: for f in src/js/*.js src/components/*.js; do node --check "$f" || exit 1; done
+
+      - name: Check import graph
+        run: node .refactor-baseline/verify-refactor/resolve-imports.mjs . src/index.html
+
+      - name: Check config drift
+        # En CI el único `broadcast/` versionado es el de Amoy (`broadcast/*/31337/`
+        # está gitignoreado), así que esto compara contra el último deploy de Amoy y
+        # tiene que decir `OK :: config.js coincide con el último deploy`.
+        run: node .refactor-baseline/check-config.mjs
+
+      - name: Build with Vite
+        # El bundle que publica Vercel (`dist/`). No es parte de la puerta e2e —esa
+        # mira la página sin bundler—, pero acá se comprueba que construya.
+        run: bun run build
+
+  # Puerta de aceptación de verdad: los dos runners de Firefox headless contra
+  # anvil. Ver `.github/workflows/README.md` para el porqué de cada pieza.
+  e2e:
+    name: e2e (Firefox + anvil)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install JS dependencies
+        # El deploy compila `src/script/deploy.sol`. Los imports de Chainlink los
+        # resuelve `foundry.toml` por el remapeo a `node_modules/`, así que sin esto
+        # el deploy no compila. `run-donate-probe.py` además usa el Vite local.
+        run: bun install --frozen-lockfile
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install Firefox
+        # NO usar el `firefox` de apt: en `ubuntu-latest` es un wrapper de snap que
+        # no arranca en CI. Esta action baja un Firefox de verdad y lo pone en PATH.
+        uses: browser-actions/setup-firefox@0bc507ddf224827e3b1af68e014d5e42ab93e795 # v1.7.2
+        with:
+          firefox-version: latest
+
+      - name: Show tool versions
+        run: |
+          forge --version
+          python3 --version
+          node --version
+          firefox --version
+
+      - name: Create the Firefox profile
+        # El perfil `.refactor-baseline/.ff` está gitignoreado: en CI no existe y
+        # Firefox headless falla con "Could not find profile folder." — y sale 0
+        # igual, así que el run quedaría sin veredicto sin fallar. El `user.js` con
+        # `dom.events.testing.asyncClipboard` es lo que habilita las aserciones del
+        # portapapeles (AGENTS.md §4).
+        run: |
+          mkdir -p .refactor-baseline/.ff
+          echo 'user_pref("dom.events.testing.asyncClipboard", true);' > .refactor-baseline/.ff/user.js
+          cat .refactor-baseline/.ff/user.js
+
+      - name: Start anvil
+        run: |
+          # `nohup` + `disown` para que el anvil sobreviva al final del paso: cada
+          # `run` es un shell nuevo, y así no dependemos de que el runner no lo limpie.
+          nohup anvil --silent --chain-id 31337 > "$RUNNER_TEMP/anvil.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/anvil.pid"
+          disown 2>/dev/null || true
+          ready=""
+          for _ in $(seq 1 60); do
+            if cast chain-id --rpc-url http://127.0.0.1:8545 >/dev/null 2>&1; then ready=1; break; fi
+            sleep 0.5
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::anvil no respondió en http://127.0.0.1:8545 (chainId 31337)"
+            exit 1
+          fi
+          echo "anvil listo: cadena $(cast chain-id --rpc-url http://127.0.0.1:8545)"
+
+      - name: Deploy locally and check that code landed
+        # `bun run deploy` = `forge script src/script/deploy.sol --rpc-url
+        # http://127.0.0.1:8545 --broadcast --unlocked --sender 0xf39f…2266`, la
+        # cuenta 0 de anvil (la de `professionalFor(31337)`).
+        #
+        # La address NO se escribe a mano acá: se lee del propio `src/js/config.js`,
+        # que es exactamente lo que el harness va a usar. Un deploy que "sale bien"
+        # sin desplegar nada (firmante implícito de Foundry, AGENTS.md §4) deja
+        # `cast code` en `0x` y este paso lo caza.
+        run: |
+          bun run deploy
+          # Se extrae por NOMBRE de campo y no por posición: la entrada también tiene
+          # `professional`, que es otra address, y un `tail -1` agarraba ésa (sin
+          # código en la chain) en vez del oráculo.
+          ENTRADA="$(sed -n '/^  31337: {/,/^  },/p' src/js/config.js)"
+          FUND="$(printf '%s\n' "$ENTRADA" | sed -n 's/.*[[:space:]]fund: *"\(0x[0-9a-fA-F]\{40\}\)".*/\1/p')"
+          FEED="$(printf '%s\n' "$ENTRADA" | sed -n 's/.*priceFeed: *"\(0x[0-9a-fA-F]\{40\}\)".*/\1/p')"
+          if [ -z "$FUND" ] || [ -z "$FEED" ]; then
+            echo "::error::no pude leer fund/priceFeed de la entrada 31337 de config.js"
+            exit 1
+          fi
+          echo "Fund de config.js: $FUND · priceFeed: $FEED"
+          CODE="$(cast code "$FUND" --rpc-url http://127.0.0.1:8545)"
+          if [ "$CODE" = "0x" ] || [ -z "$CODE" ]; then
+            echo "::error::el deploy no dejó código en $FUND (¿firmante implícito?)"
+            exit 1
+          fi
+          # El mock del oráculo arranca con la hora del deploy; si la cadena quedara
+          # con un `updatedAt` viejo, `getLatestPrice()` revienta con `StalePrice()`
+          # (>3 h, AGENTS.md §4) y el harness fallaría con un error de la app que no
+          # lo es. Se comprueba acá para que el fallo sea claro.
+          # `cast call` imprime los números con una anotación legible al lado
+          # (`1790193887 [1.79e9]`), así que se toma la primera palabra.
+          UPDATED_AT="$(cast call "$FEED" 'latestRoundData()(uint80,int256,uint256,uint256,uint80)' --rpc-url http://127.0.0.1:8545 | sed -n 3p | awk '{print $1}')"
+          case "$UPDATED_AT" in
+            ''|*[!0-9]*) echo "::error::no pude leer el oráculo $FEED (updatedAt='$UPDATED_AT')"; exit 1 ;;
+          esac
+          EDAD=$(( $(date +%s) - UPDATED_AT ))
+          echo "oráculo actualizado hace ${EDAD}s"
+          if [ "$EDAD" -ge 10800 ] || [ "$EDAD" -lt -60 ]; then
+            echo "::error::el oráculo está viejo (${EDAD}s > 3 h): el harness fallaría con StalePrice()"
+            exit 1
+          fi
+
+      - name: Acceptance harness (run-harness.py)
+        # La puerta: 237 aserciones sobre la landing real contra anvil.
+        run: |
+          PATH="$HOME/.foundry/bin:$PATH"
+          export PATH
+          rm -f .refactor-baseline/.ff/.parentlock
+          code=0
+          python3 -u .refactor-baseline/verify-refactor/run-harness.py 8899 2>&1 | tee "$RUNNER_TEMP/harness.log" || code=$?
+          echo "run-harness.py exit=$code"
+          if [ "$code" -ne 0 ] || ! grep -q '^VERDICT: PASS$' "$RUNNER_TEMP/harness.log"; then
+            echo "::error::la puerta e2e no dio VERDICT: PASS (exit=$code)"
+            exit 1
+          fi
+
+      - name: Acceptance harness (run-donate-probe.py)
+        # Secuencial a propósito: los dos comparten anvil y los mismos saldos, así que
+        # no se corren en paralelo (AGENTS.md §3).
+        run: |
+          PATH="$HOME/.foundry/bin:$PATH"
+          export PATH
+          rm -f .refactor-baseline/.ff/.parentlock
+          code=0
+          python3 -u .refactor-baseline/verify-refactor/run-donate-probe.py 8899 2>&1 | tee "$RUNNER_TEMP/donate-probe.log" || code=$?
+          echo "run-donate-probe.py exit=$code"
+          if [ "$code" -ne 0 ] || ! grep -q '^VERDICT: PASS$' "$RUNNER_TEMP/donate-probe.log"; then
+            echo "::error::la sonda de la página de donación no dio VERDICT: PASS (exit=$code)"
+            exit 1
+          fi
+
+      - name: Stop anvil
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/anvil.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/anvil.pid")" 2>/dev/null || true
+          fi
+          pkill -f 'anvil --silent' 2>/dev/null || true
