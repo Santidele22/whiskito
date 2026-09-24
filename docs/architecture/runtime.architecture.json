@@ -7,7 +7,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/Santidele22/whiskito",
-      "revision": "11ffb27a950fca33f4edec4a48aee15347a8eb4b"
+      "revision": "03acd19c3716ccc6d9a46d23697f12491438829f"
     },
     "views": [
       {
@@ -80,7 +80,7 @@
       "sources": [
         {
           "path": "src/index.html",
-          "line": 42,
+          "line": 39,
           "label": "módulo ES, sin bundler"
         },
         {
@@ -104,7 +104,7 @@
       "sources": [
         {
           "path": "src/components/index.js",
-          "line": 15,
+          "line": 20,
           "label": "registro de las 11 islas"
         }
       ]
@@ -123,13 +123,13 @@
       ],
       "sources": [
         {
-          "path": "src/js/islands.js",
-          "line": 233,
+          "path": "src/js/dom/islands.js",
+          "line": 287,
           "label": "listeners de los eventos"
         },
         {
-          "path": "src/js/islands.js",
-          "line": 2,
+          "path": "src/js/dom/islands.js",
+          "line": 3,
           "label": "document.querySelector"
         }
       ]
@@ -147,17 +147,17 @@
       ],
       "sources": [
         {
-          "path": "src/js/main.js",
+          "path": "src/js/entries/main.js",
           "line": 4,
           "label": "sin lógica: registra y arranca"
         },
         {
-          "path": "src/js/app.js",
-          "line": 425,
+          "path": "src/js/entries/app.js",
+          "line": 508,
           "label": "startApp()"
         },
         {
-          "path": "src/js/donate.js",
+          "path": "src/js/entries/donate.js",
           "line": 309,
           "label": "flujo de la donación"
         }
@@ -177,12 +177,12 @@
       ],
       "sources": [
         {
-          "path": "src/js/tx.js",
+          "path": "src/js/solidity/tx.js",
           "line": 94,
           "label": "writeAndConfirm"
         },
         {
-          "path": "src/js/tx.js",
+          "path": "src/js/solidity/tx.js",
           "line": 81,
           "label": "confirmReceipt mira el status"
         }
@@ -201,13 +201,13 @@
       ],
       "sources": [
         {
-          "path": "src/js/solidity-functions.js",
+          "path": "src/js/solidity/solidity-functions.js",
           "line": 10,
           "label": "readContract"
         },
         {
-          "path": "src/js/solidity-functions.js",
-          "line": 165,
+          "path": "src/js/solidity/solidity-functions.js",
+          "line": 186,
           "label": "fund()"
         }
       ]
@@ -226,12 +226,12 @@
       ],
       "sources": [
         {
-          "path": "src/js/config.js",
+          "path": "src/js/config/config.js",
           "line": 1,
           "label": "NETWORKS"
         },
         {
-          "path": "src/js/config.js",
+          "path": "src/js/config/config.js",
           "line": 61,
           "label": "DEFAULT_CHAIN_ID según el origen"
         }
@@ -250,13 +250,13 @@
       ],
       "sources": [
         {
-          "path": "src/js/chain.js",
+          "path": "src/js/solidity/chain.js",
           "line": 73,
           "label": "cliente de lectura por HTTP"
         },
         {
-          "path": "src/js/chain.js",
-          "line": 227,
+          "path": "src/js/solidity/chain.js",
+          "line": 243,
           "label": "cliente de wallet"
         }
       ]
@@ -274,7 +274,7 @@
       ],
       "sources": [
         {
-          "path": "src/js/chain.js",
+          "path": "src/js/solidity/chain.js",
           "line": 76,
           "label": "transport: http(activeNetwork.rpc)"
         }
@@ -293,12 +293,12 @@
       ],
       "sources": [
         {
-          "path": "src/js/chain.js",
+          "path": "src/js/solidity/chain.js",
           "line": 91,
           "label": "hasWallet()"
         },
         {
-          "path": "src/js/chain.js",
+          "path": "src/js/solidity/chain.js",
           "line": 152,
           "label": "switchToActiveNetwork()"
         }
@@ -343,7 +343,7 @@
       "sources": [
         {
           "path": "src/script/deploy.sol",
-          "line": 11,
+          "line": 12,
           "label": "MockV3Aggregator(8, 2000e8)"
         },
         {
