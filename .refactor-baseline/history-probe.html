@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>sonda de la página del historial</title>
+    <style>
+      html, body { margin: 0; background: #0b0b0b; color: #7CFC00; font: 13px/1.45 monospace; }
+      iframe { width: 1440px; height: 900px; border: 0; position: absolute; left: -10000px; top: 0; }
+      #out { white-space: pre-wrap; padding: 10px; }
+    </style>
+  </head>
+  <body>
+    <!-- Sonda de la página del historial (`/historial`): se copia a `src/` para
+         ser del MISMO ORIGEN que la página y se borra después; las dos cosas las
+         hace `verify-refactor/run-history-probe.py`.
+
+         La sonda LEE: la donación real (0,001 ETH desde otra cuenta de anvil) la
+         hace el driver ANTES de lanzar Firefox, y le pasa por query lo que la
+         tabla tiene que decir (`u`, `donor`, `expRondas`, `expEth`, `expUsd`,
+         `expSummary`) — derivado de la chain, no inventado.
+
+         El bloque T mira el HEADER de la página: es el navbar de la landing,
+         reusado en su modo "fuera de la landing" (`base`), así que acá se
+         afirma que los cuatro links llevan a la landing, que el control "Volver
+         al inicio" se ve y apunta al inicio, que los controles de wallet quedan
+         ocultos, que la tarjeta ocupa el ancho y el alto que sobra —y, como
+         control, que en la LANDING nada de eso aparece (el modo por defecto del
+         navbar no cambió).
+
+         El bloque U mira el OTRO lado del control "Volver al inicio": que
+         volver a la landing NO desloguee. Carga la landing (el mismo iframe
+         `#landing` que usó T6) con una wallet EIP-1193 falsa ya autorizada —que
+         contesta `eth_accounts` y falla `eth_requestAccounts`— y afirma que al
+         RECARGAR la app queda conectada sola y sin haber pedido permiso; y, como
+         control negativo del camino opuesto, que con `eth_accounts` en `[]` la
+         landing queda desconectada. -->
+    <img id="hold" alt="" style="position: absolute; left: -10000px" />
+    <!-- La página con dirección: la ruta, el montaje y los datos reales. -->
+    <iframe id="conDireccion"></iframe>
+    <!-- `/historial` sin `?u=` : el aviso de que no hay dirección Y el botón. -->
+    <iframe id="sinDireccion"></iframe>
+    <!-- Lectura forzada a fallar (`?rpc=` a un puerto muerto): el error no puede
+         verse como "todavía no recibiste nada". -->
+    <iframe id="errorLectura"></iframe>
+    <!-- La LANDING, para el control del modo por defecto (el bloque T): el
+         navbar reusado no puede cambiar nada acá. -->
+    <iframe id="landing"></iframe>
+    <pre id="out">corriendo…</pre>
+
+    <script type="module">
+      const Q = new URLSearchParams(location.search);
+      /** La dirección DUEÑA del historial (sale de `NETWORKS[31337].professional`). */
+      const OWNER = Q.get("u") ?? "";
+      /** La cuenta que donó de verdad (anvil, cuenta 1): la fila tiene que decirla. */
+      const DONOR = Q.get("donor") ?? "";
+      /**
+       * Lo esperado, calculado por el driver con el historial REAL de la chain:
+       * `exp*` es el TOTAL (lo que dice el resumen, sumando lo que ya hubiera) y
+       * `row*` es la donación de ESTA corrida (lo que dice su fila).
+       */
+      const EXP_RONDAS = Number(Q.get("expRondas") ?? "1");
+      const EXP_ETH = Q.get("expEth") ?? "0.001";
+      const EXP_USD = Q.get("expUsd") ?? "2.00";
+      const ROW_ETH = Q.get("rowEth") ?? "0.001";
+      const ROW_USD = Q.get("rowUsd") ?? "2.00";
+      const EXP_SUMMARY =
+        Q.get("expSummary") ??
+        `${EXP_RONDAS === 1 ? "1 ronda" : `${EXP_RONDAS} rondas`} · ${EXP_ETH} POL · ≈ $${EXP_USD} USD`;
+
+      /** La acortada de `format.js` (`shortAddress`), aplicada a la cuenta que donó. */
+      const shortOf = (a) =>
+        a && a.length > 10 ? `${a.slice(0, 6)}...${a.slice(-4)}` : (a ?? "");
+      const EXP_DONOR_SHORT = shortOf(DONOR);
+      /** Lo que dibuja la isla en cada celda de la fila (`render` de la tabla). */
+      const EXP_AMOUNT_CELL = `+${ROW_ETH} POL`;
+      const EXP_USD_CELL = `≈ $${ROW_USD}`;
+
+      const results = [];
+      const check = (name, ok, extra = "") =>
+        results.push(`${ok ? "ok" : "FALLA"} ${name}${extra ? " <" + extra + ">" : ""}`);
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      /**
+       * Dónde vive el colector del reporte: `serve.py` (`/__hold__` y
+       * `/__report__`), en 8899 por defecto. A esta sonda la sirve OTRO origen
+       * (el dev server de Vite, el único con la ruta `/historial`), así que el
+       * reporte viaja cross-origin con `no-cors` y el driver lo lee del log.
+       */
+      const REPORT_BASE =
+        Q.get("report") || "http://127.0.0.1:8899";
+      document.getElementById("hold").src = REPORT_BASE + "/__hold__";
+
+      const reportar = (texto) => {
+        document.getElementById("out").textContent = texto;
+        fetch(REPORT_BASE + "/__report__?d=" + encodeURIComponent(texto.slice(0, 20000)), {
+          mode: "no-cors",
+        });
+      };
+
+      const cargar = async (frame, url, espera = 2000) => {
+        frame.src = url;
+        await new Promise((res) => {
+          frame.addEventListener("load", res, { once: true });
+          setTimeout(res, 15000);
+        });
+        await sleep(espera);
+        return frame.contentWindow;
+      };
+
+      const shadow = (el) => el?.shadowRoot ?? el;
+
+      /** El texto visible de una isla, sin el `<style>` del shadow root. */
+      const textoDe = (el) => {
+        const raiz = shadow(el);
+        if (!raiz) return "";
+        const partes = [];
+        const recorrer = (nodo) => {
+          for (const hijo of nodo.childNodes) {
+            if (hijo.nodeType === 3) { partes.push(hijo.textContent); continue; }
+            if (hijo.nodeType !== 1) continue;
+            if (hijo.tagName === "STYLE" || hijo.tagName === "SCRIPT") continue;
+            recorrer(hijo);
+          }
+        };
+        recorrer(raiz);
+        return partes.join(" ").replace(/\s+/g, " ").trim();
+      };
+
+      /** ¿Se ve de verdad? (display, visibility y caja no degenerada). */
+      const visibleEn = (w, el) => {
+        if (!el) return false;
+        const s = w.getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return s.display !== "none" && s.visibility !== "hidden" && r.width > 0 && r.height > 0;
+      };
+
+      /**
+       * Qué hay ARRIBA del centro del elemento, medido dentro del shadow root
+       * donde vive (`shadowRoot.elementFromPoint`; el `document` devolvería el
+       * host). Un `.click()` programático no prueba que una persona pueda
+       * clickear.
+       */
+      const hitDe = (raiz, el) => {
+        if (!raiz || !el) return { arriba: null, alcanzable: false };
+        const r = el.getBoundingClientRect();
+        const arriba = raiz.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { arriba, alcanzable: Boolean(arriba) && (arriba === el || el.contains(arriba)) };
+      };
+
+      /** Un click como el de una persona: sobre el nodo que está arriba. */
+      const clickDeVerdad = (w, raiz, el) => {
+        const { arriba, alcanzable } = hitDe(raiz, el);
+        if (!alcanzable) return false;
+        arriba.dispatchEvent(
+          new w.MouseEvent("click", { bubbles: true, composed: true, cancelable: true })
+        );
+        return true;
+      };
+
+      /** Espera a que se cumpla `cond` (el flujo de la página es asíncrono). */
+      const esperar = async (cond, timeout = 25000, paso = 250) => {
+        const fin = Date.now() + timeout;
+        for (;;) {
+          const v = cond();
+          if (v) return v;
+          if (Date.now() > fin) return null;
+          await sleep(paso);
+        }
+      };
+
+      /** La isla del iframe, ya montada y con su lectura terminada. */
+      const tablaLista = (w, timeout = 25000) =>
+        esperar(() => {
+          const t = w.document.querySelector("whiskito-history-table");
+          if (!t?.shadowRoot) return null;
+          if (t.loading && !t.message) return null;
+          if (t.rows.length === 0 && !t.message) return null;
+          return t;
+        }, timeout);
+
+      /** Los datos de una fila, tal cual quedaron dibujados. */
+      const datosDeFila = (fila) => {
+        const donorEl = fila.querySelector(".hist-donor code");
+        const txCell = fila.querySelector(".hist-tx-cell");
+        const tx = fila.querySelector("a.hist-tx");
+        return {
+          when: fila.querySelector(".hist-when")?.textContent ?? "",
+          donorShort: donorEl?.textContent ?? "",
+          donorFull: donorEl?.getAttribute("title") ?? "",
+          amount: fila.querySelector(".hist-amt")?.textContent ?? "",
+          usd: fila.querySelector(".hist-usd")?.textContent ?? "",
+          txCellHidden: txCell?.hasAttribute("hidden") ?? false,
+          txHref: tx?.getAttribute("href"),
+        };
+      };
+      const describirFila = (r) =>
+        `<cuando="${r.when}" donor="${r.donorShort}" full="${r.donorFull}" pol="${r.amount}" usd="${r.usd}" txCellHidden=${r.txCellHidden}>`;
+
+      try {
+        // ── R. La ruta: `/historial?u=…` redirige, no se sirve ahí ───────
+        // La trampa que esto caza: con un rewrite la URL conserva `/historial`,
+        // los assets relativos del HTML resuelven bajo esa ruta, el fallback de
+        // SPA contesta el HTML con un 200 y la página queda MUERTA sin un solo
+        // error visible. Por eso no alcanza con mirar el status: hay que mirar
+        // DÓNDE quedó el documento.
+        const res = await fetch(`/historial?u=${encodeURIComponent(OWNER)}`, {
+          redirect: "follow",
+        });
+        const final = new URL(res.url);
+        check(
+          "R1 /historial?u=… contesta con un redirect y termina en /historial.html conservando la dirección en ?u=",
+          res.redirected === true &&
+            res.status === 200 &&
+            final.pathname === "/historial.html" &&
+            (final.searchParams.get("u") ?? "").toLowerCase() === OWNER.toLowerCase(),
+          `redirected=${res.redirected} status=${res.status} url=${res.url}`
+        );
+        check(
+          "R2 la página servida NO vive bajo /historial/ (ahí los assets relativos la matarían)",
+          !final.pathname.startsWith("/historial/") && final.pathname === "/historial.html",
+          `pathname=${final.pathname}`
+        );
+        const manual = await fetch(`/historial?u=${encodeURIComponent(OWNER)}`, {
+          redirect: "manual",
+        });
+        check(
+          "R3 y el navegador ve un 3xx de verdad (redirect opaco), no un 200 con el HTML en esa ruta",
+          manual.type === "opaqueredirect",
+          `type=${manual.type} status=${manual.status} redirected=${manual.redirected}`
+        );
+        const resPath = await fetch(`/historial/${encodeURIComponent(OWNER)}`, {
+          redirect: "follow",
+        });
+        const finalPath = new URL(resPath.url);
+        check(
+          "R4 /historial/0x… también redirige y MUDA la dirección a ?u= (la ruta no se puede conservar)",
+          resPath.redirected === true &&
+            finalPath.pathname === "/historial.html" &&
+            (finalPath.searchParams.get("u") ?? "").toLowerCase() === OWNER.toLowerCase(),
+          `redirected=${resPath.redirected} url=${resPath.url}`
+        );
+
+        // ── M. Montaje: la isla existe, tiene shadow root y dibujó ──────
+        const win = await cargar(
+          document.getElementById("conDireccion"),
+          `/historial?u=${encodeURIComponent(OWNER)}`
+        );
+        const doc = win.document;
+        const tabla = await tablaLista(win);
+        const root = shadow(tabla);
+        check(
+          "M1 el iframe monta la página del historial (documento en /historial.html, con la dirección en el query)",
+          win.location.pathname === "/historial.html" &&
+            (new URLSearchParams(win.location.search).get("u") ?? "").toLowerCase() ===
+              OWNER.toLowerCase(),
+          `url=${win.location.href}`
+        );
+        check(
+          "M2 la isla `whiskito-history-table` está registrada y tiene shadow root",
+          typeof win.customElements.get("whiskito-history-table") === "function" &&
+            Boolean(tabla?.shadowRoot),
+          `registrada=${typeof win.customElements.get("whiskito-history-table")} shadowRoot=${Boolean(tabla?.shadowRoot)}`
+        );
+        const encabezados = [...(root?.querySelectorAll(".hist-table thead th") ?? [])].map(
+          (th) => th.textContent.trim()
+        );
+        check(
+          "M3 la isla dibujó su tabla (no quedó muerta): el título, los 5 encabezados y el pie están en el shadow root",
+          textoDe(root?.querySelector(".hist-title")) === "Historial de donaciones" &&
+            encabezados.join("|") === "Cuándo|Quién|POL|USD|Tx" &&
+            /historial completo/i.test(textoDe(root?.querySelector(".hist-foot"))),
+          `titulo="${textoDe(root?.querySelector(".hist-title"))}" encabezados=[${encabezados.join(",")}] pie="${textoDe(root?.querySelector(".hist-foot"))}"`
+        );
+        const dirEl = root?.querySelector(".hist-address");
+        check(
+          "M4 la isla dice de QUIÉN es el historial (acortada a la vista, completa en el title)",
+          (dirEl?.textContent ?? "").toLowerCase() === shortOf(OWNER).toLowerCase() &&
+            (dirEl?.getAttribute("title") ?? "").toLowerCase() === OWNER.toLowerCase(),
+          `dice="${dirEl?.textContent}" title="${dirEl?.getAttribute("title")}"`
+        );
+
+        // ── H. Datos reales: la donación de verdad está en la tabla ─────
+        const filas = [...(root?.querySelectorAll("#histBody tr") ?? [])].map(datosDeFila);
+        check(
+          "H1 con la donación hecha hay al menos 1 fila (la lectura de eventos Funded trajo datos)",
+          filas.length >= 1 && tabla?.loading === false && tabla?.message === "",
+          `filas=${filas.length} loading=${tabla?.loading} message="${tabla?.message}" esperadas=${EXP_RONDAS}`
+        );
+        const mia = filas.find(
+          (f) => f.donorFull.toLowerCase() === DONOR.toLowerCase()
+        );
+        check(
+          "H2 la fila de esa donación dice el donante correcto (acortado), 0.001 POL y 2.00 USD",
+          Boolean(mia) &&
+            mia.donorShort.toLowerCase() === EXP_DONOR_SHORT.toLowerCase() &&
+            mia.amount === EXP_AMOUNT_CELL &&
+            mia.usd === EXP_USD_CELL,
+          `buscado=<${EXP_DONOR_SHORT} ${EXP_AMOUNT_CELL} ${EXP_USD_CELL}> encontrado=${mia ? describirFila(mia) : "ninguna"} todas=[${filas.map(describirFila).join(" ; ")}]`
+        );
+        const resumenEl = root?.querySelector("#histSummary");
+        check(
+          "H3 el resumen dice exactamente el total de la chain (`N rondas · X POL · ≈ $Y USD`)",
+          (resumenEl?.textContent ?? "") === EXP_SUMMARY &&
+            !resumenEl?.classList.contains("is-error") &&
+            !resumenEl?.classList.contains("is-loading") &&
+            visibleEn(win, resumenEl),
+          `dice="${resumenEl?.textContent}" esperado="${EXP_SUMMARY}" filas=${filas.length}`
+        );
+
+        // ── X. Sin explorador (anvil no tiene): la columna Tx NO se dibuja ──
+        const thTx = root?.querySelector("#histTxHead");
+        check(
+          "X1 sin explorador la columna 'Tx' no se dibuja (su <th> queda oculto)",
+          thTx?.hasAttribute("hidden") === true && !visibleEn(win, thTx) && tabla?.explorer === "",
+          `hidden=${thTx?.hasAttribute("hidden")} visible=${visibleEn(win, thTx)} explorer="${tabla?.explorer}"`
+        );
+        check(
+          "X2 y ninguna fila dibuja la celda de la transacción (ni un link sin href)",
+          filas.length > 0 && filas.every((f) => f.txCellHidden && !f.txHref),
+          `filas=${filas.length} celdasOcultas=${filas.filter((f) => f.txCellHidden).length} hrefs=[${filas.map((f) => f.txHref ?? "sin-href").join(",")}]`
+        );
+
+        // ── C. Sin dirección: el aviso Y el botón, no el aviso solo ─────
+        // El defecto que esto caza: el aviso invitaba a conectar la wallet pero
+        // la isla no ofrecía el botón (quedaba sin salida hasta recargar).
+        const winS = await cargar(document.getElementById("sinDireccion"), "/historial");
+        const tablaS = await tablaLista(winS);
+        const rootS = shadow(tablaS);
+        const resumenS = rootS?.querySelector("#histSummary");
+        const botonS = rootS?.querySelector("#histConnect");
+        check(
+          "C1 /historial sin ?u= dice que todavía no sabe de quién es el historial",
+          /todav[íi]a no dice de qui[ée]n/i.test(resumenS?.textContent ?? "") &&
+            visibleEn(winS, resumenS),
+          `dice="${resumenS?.textContent}" connect=${tablaS?.connect}`
+        );
+        check(
+          "C2 y ofrece el botón 'Conectá tu wallet' VISIBLE (es la única salida que queda)",
+          visibleEn(winS, botonS) &&
+            botonS?.textContent.trim() === "Conectá tu wallet" &&
+            tablaS?.connect === true,
+          `visible=${visibleEn(winS, botonS)} hidden=${botonS?.hasAttribute("hidden")} texto="${botonS?.textContent.trim()}" connect=${tablaS?.connect}`
+        );
+        check(
+          "C3 sin dirección tampoco miente con el estado vacío ni con la tabla",
+          !visibleEn(winS, rootS?.querySelector(".hist-empty")) &&
+            !visibleEn(winS, rootS?.querySelector(".hist-table")) &&
+            (tablaS?.rows.length ?? -1) === 0,
+          `emptyVisible=${visibleEn(winS, rootS?.querySelector(".hist-empty"))} tablaVisible=${visibleEn(winS, rootS?.querySelector(".hist-table"))} filas=${tablaS?.rows.length}`
+        );
+        check(
+          "C4 con dirección, en cambio, ese botón NO se ve (no hay nada que conectar)",
+          !visibleEn(win, root?.querySelector("#histConnect")) &&
+            root?.querySelector("#histConnect")?.hasAttribute("hidden") === true,
+          `visible=${visibleEn(win, root?.querySelector("#histConnect"))} hidden=${root?.querySelector("#histConnect")?.hasAttribute("hidden")} connect=${tabla?.connect}`
+        );
+        let pedidoC5 = false;
+        winS.document.addEventListener("whiskito:connect-request", () => {
+          pedidoC5 = true;
+        });
+        const hitC5 = hitDe(rootS, botonS);
+        const clickeadoC5 = clickDeVerdad(winS, rootS, botonS);
+        await sleep(800);
+        check(
+          "C5 el botón es clickeable de verdad y avisa hacia afuera con `whiskito:connect-request`",
+          clickeadoC5 && hitC5.alcanzable && pedidoC5,
+          `clickeado=${clickeadoC5} arriba=<${hitC5.arriba?.tagName ?? "nada"}> alcanzable=${hitC5.alcanzable} emitido=${pedidoC5}`
+        );
+        check(
+          "C6 sin wallet instalada el intento lo dice y el botón VUELVE (la página no queda sin salida)",
+          /wallet/i.test(resumenS?.textContent ?? "") &&
+            visibleEn(winS, botonS) &&
+            tablaS?.connect === true,
+          `dice="${resumenS?.textContent}" botonVisible=${visibleEn(winS, botonS)} connect=${tablaS?.connect}`
+        );
+
+        // ── E. El error no se ve como vacío ─────────────────────────────
+        // `?rpc=` apunta a un puerto muerto: la lectura falla de verdad. Sin
+        // esto, una tabla vacía se leería como "no recibiste nada".
+        const winE = await cargar(
+          document.getElementById("errorLectura"),
+          `/historial?u=${encodeURIComponent(OWNER)}&rpc=${encodeURIComponent("http://127.0.0.1:1")}`,
+          1000
+        );
+        const tablaE = await tablaLista(winE, 30000);
+        const rootE = shadow(tablaE);
+        const resumenE = rootE?.querySelector("#histSummary");
+        const vacioE = rootE?.querySelector(".hist-empty");
+        check(
+          "E1 una lectura que falla lo DICE (mensaje de error, en rojo y a la vista)",
+          /no pudimos leer el historial/i.test(resumenE?.textContent ?? "") &&
+            resumenE?.classList.contains("is-error") &&
+            visibleEn(winE, resumenE),
+          `dice="${resumenE?.textContent}" is-error=${resumenE?.classList.contains("is-error")} visible=${visibleEn(winE, resumenE)}`
+        );
+        check(
+          "E2 y NO aparece el 'Todavía no recibiste ningún whiskito' (el error no se puede leer como vacío)",
+          !visibleEn(winE, vacioE),
+          `emptyVisible=${visibleEn(winE, vacioE)} texto="${vacioE?.textContent.trim()}"`
+        );
+        check(
+          "E3 ni se dibuja la tabla: el error no pasa por 'sin donaciones'",
+          !visibleEn(winE, rootE?.querySelector(".hist-table")) &&
+            (tablaE?.rows.length ?? -1) === 0,
+          `tablaVisible=${visibleEn(winE, rootE?.querySelector(".hist-table"))} filas=${tablaE?.rows.length}`
+        );
+        check(
+          "E4 el botón de conectar tampoco se ofrece: un error de la chain no se arregla conectando la wallet",
+          !visibleEn(winE, rootE?.querySelector("#histConnect")) && tablaE?.connect === false,
+          `visible=${visibleEn(winE, rootE?.querySelector("#histConnect"))} connect=${tablaE?.connect}`
+        );
+
+        // ── T. El header de la página: el navbar de la landing, reusado ──
+        // El navbar gana un modo "fuera de la landing" con `base`: los cuatro
+        // links pasan a apuntar a la landing con su ancla, aparece el control de
+        // volver al inicio y los controles de wallet quedan ocultos (acá no hay
+        // landing, y la isla ya ofrece conectar la wallet).
+        // T6 es el control del otro lado: en la LANDING el modo por defecto no
+        // puede haber cambiado.
+        const navHost = doc.querySelector("whiskito-navbar");
+        const navRoot = navHost?.shadowRoot;
+        check(
+          "T1 el navbar está montado en /historial (registrado y con shadow root)",
+          typeof win.customElements.get("whiskito-navbar") === "function" &&
+            Boolean(navRoot),
+          `registrada=${typeof win.customElements.get("whiskito-navbar")} shadowRoot=${Boolean(navRoot)}`
+        );
+        const ANCLAS = ["#donar", "#como-funciona", "#panel", "#faq"];
+        const origen = win.location.origin;
+        const enlaces = [...(navRoot?.querySelectorAll(".nav-links a") ?? [])];
+        // El href RESUELTO (no el atributo): así se ve de verdad a dónde lleva.
+        const destinos = enlaces.map((a) => {
+          try {
+            return new URL(a.href);
+          } catch {
+            return null;
+          }
+        });
+        check(
+          "T2 los cuatro links apuntan a la LANDING con su ancla (no a un # de esta página)",
+          enlaces.length === 4 &&
+            destinos.every(
+              (u, i) =>
+                u !== null &&
+                u.origin === origen &&
+                u.pathname === "/" &&
+                u.hash === ANCLAS[i] &&
+                enlaces[i].href.endsWith(ANCLAS[i])
+            ),
+          `hrefs=[${destinos.map((u) => (u ? u.href : "sin-url")).join(", ")}] origen=${origen}`
+        );
+        const volver = navRoot?.querySelector("#backHome");
+        const volverUrl = (() => {
+          try {
+            return new URL(volver?.href ?? "");
+          } catch {
+            return null;
+          }
+        })();
+        check(
+          "T3 el control «Volver al inicio» existe, se VE y su href apunta al inicio (sin ancla)",
+          visibleEn(win, volver) &&
+            (volver?.textContent ?? "").trim() === "Volver al inicio" &&
+            volverUrl !== null &&
+            volverUrl.origin === origen &&
+            volverUrl.pathname === "/" &&
+            volverUrl.hash === "" &&
+            hitDe(navRoot, volver).alcanzable,
+          `visible=${visibleEn(win, volver)} texto="${(volver?.textContent ?? "").trim()}" ` +
+            `href="${volver?.getAttribute("href")}" resuelta=${volverUrl?.href ?? "sin-url"} ` +
+            `alcanzable=${hitDe(navRoot, volver).alcanzable}`
+        );
+        const CONTROLES_WALLET = [
+          "#connectButton",
+          "#switchButton",
+          "#disconnectButton",
+        ];
+        const walletVisibles = CONTROLES_WALLET.filter((sel) =>
+          visibleEn(win, navRoot?.querySelector(sel))
+        );
+        check(
+          "T4 los controles de wallet del navbar NO se ven acá (conectar, cambiar cuenta, desconectar)",
+          walletVisibles.length === 0,
+          walletVisibles.length
+            ? `visibles: ${walletVisibles.join(", ")}`
+            : `los 3 ocultos: ${CONTROLES_WALLET.join(", ")}`
+        );
+        const hostRect = tabla.getBoundingClientRect();
+        const cardRect = root?.querySelector(".hist-card").getBoundingClientRect();
+        const hostCss = win.getComputedStyle(tabla);
+        const paddingX =
+          parseFloat(hostCss.paddingLeft) + parseFloat(hostCss.paddingRight);
+        const paddingY =
+          parseFloat(hostCss.paddingTop) + parseFloat(hostCss.paddingBottom);
+        // El navbar medido por su caja REAL: el host (la landing lo deja en
+        // `display: contents`, acá no) y, si hiciera falta, la del `.navbar`.
+        const navbarAlto = Math.max(
+          navHost.getBoundingClientRect().height,
+          navRoot?.querySelector(".navbar")?.getBoundingClientRect().height ?? 0
+        );
+        const anchoOk =
+          cardRect.width > win.innerWidth * 0.9 &&
+          Math.abs(cardRect.width - (hostRect.width - paddingX)) <= 2;
+        const altoOk =
+          hostRect.height >= win.innerHeight - navbarAlto - 40 &&
+          cardRect.height >= hostRect.height - paddingY - 2;
+        check(
+          "T5 la tarjeta ocupa el ancho del viewport y la isla el alto que queda bajo el navbar",
+          anchoOk && altoOk,
+          `tarjeta=${Math.round(cardRect.width)}x${Math.round(cardRect.height)} ` +
+            `host=${Math.round(hostRect.width)}x${Math.round(hostRect.height)} ` +
+            `viewport=${win.innerWidth}x${win.innerHeight} navbar=${Math.round(navbarAlto)} ` +
+            `padding=${paddingX}/${paddingY}`
+        );
+
+        // ── T6. El control: la LANDING no cambió ─────────────────────────
+        // El mismo navbar en su modo de siempre (sin `base`): ahí el control de
+        // volver NO existe y los links siguen siendo anclas de la propia página.
+        const winL = await cargar(
+          document.getElementById("landing"),
+          "/",
+          1500
+        );
+        const navL = await esperar(() => {
+          const raizL = winL.document.querySelector("whiskito-navbar")?.shadowRoot;
+          return raizL?.querySelector(".nav-links a") ? raizL : null;
+        }, 20000);
+        const volverL = navL?.querySelector("#backHome");
+        const hrefsL = [
+          ...(navL?.querySelectorAll(".nav-links a") ?? []),
+        ].map((a) => a.getAttribute("href"));
+        // El icono del control de volver se monta SÓLO en el modo de esta
+        // página: en la landing el navbar conserva los iconos de su template y
+        // ninguno sin hidratar. Si el `<i>` de `arrow-left` estuviera suelto en
+        // el template, acá habría uno más.
+        //
+        // Son TRES y no cuatro: el template tiene cuatro marcadores (el vaso, el
+        // del control de volver —que vive en un `<template data-back-icon>` y por
+        // eso NO se dibuja en la landing—, el de conectar y el del marcador de
+        // conectado), y acá el control de volver no se monta porque el navbar de
+        // la landing no tiene `base` (`backHome` queda `hidden` y su icono no se
+        // clona). El botón "Mi Panel" del navbar se borró con el modal: su icono
+        // ya no existe.
+        const iconosL = navL?.querySelectorAll("svg.icon").length ?? -1;
+        const sinHidratarL = navL?.querySelectorAll("i[data-lucide]").length ?? -1;
+        check(
+          "T6 en la LANDING el modo por defecto no cambió: sin «Volver al inicio», con las anclas de la propia página y con sus 3 iconos",
+          Boolean(navL) &&
+            !visibleEn(winL, volverL) &&
+            hrefsL.join("|") === ANCLAS.join("|") &&
+            iconosL === 3 &&
+            sinHidratarL === 0,
+          `navbar=${Boolean(navL)} volverVisible=${visibleEn(winL, volverL)} ` +
+            `hidden=${volverL?.hasAttribute("hidden")} hrefs=[${hrefsL.join(", ")}] ` +
+            `iconos=${iconosL} sinHidratar=${sinHidratarL}`
+        );
+
+        // ── U. Reconexión SILENCIOSA al cargar: volver no desloguea ──────
+        // El bug que esto caza: desde `/historial`, el control "Volver al
+        // inicio" llevaba a la landing y ahí la wallet aparecía DESCONECTADA,
+        // porque nada le preguntaba por la sesión al cargar. El arreglo
+        // reconecta SÓLO si la wallet ya autorizó este sitio (por
+        // `eth_accounts`, que no abre ningún prompt) y nunca pide permiso
+        // (`eth_requestAccounts`).
+        //
+        // La wallet se inyecta en CADA `load` y no una sola vez: un `reload()`
+        // crea un documento nuevo y se lleva puesto lo que hubiera en `window`,
+        // así que la recarga de U1 es justamente la que prueba el camino de
+        // CARGAR (un click no lo probaría). Se reusa el iframe `#landing` que
+        // ya usó T6, que a esta altura terminó.
+        //
+        // El `?rpc=` apunta a un puerto muerto A PROPÓSITO: frena el arranque
+        // (la lectura falla y viem reintenta), así la inyección del `load`
+        // —que corre apenas el documento termina de cargar— llega siempre antes
+        // de que el arranque intente reconectar. De la landing no se afirma nada
+        // más que el navbar: con ese RPC no hay precio ni panel que mirar.
+        const CUENTA_U = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8";
+        const SHORT_U = `${CUENTA_U.slice(0, 6)}...${CUENTA_U.slice(-4)}`;
+        /** Lo que contesta `eth_accounts` en la PRÓXIMA carga (U3 lo vacía). */
+        let cuentasU = [CUENTA_U];
+        /** La wallet de la ÚLTIMA carga: su lista de métodos es la evidencia. */
+        let walletU = null;
+        /**
+         * Wallet falsa EIP-1193 con la que se prueba la reconexión:
+         * `eth_accounts` contesta la lista que se le diga —vacía o no— y
+         * `eth_requestAccounts` SIEMPRE falla, que es lo que prueba que la
+         * reconexión no pide permiso (si lo pidiera, no se conectaría nunca).
+         * Registra todos los métodos que ve pasar, en orden.
+         */
+        const crearWalletU = () => {
+          const metodos = [];
+          const wallet = {
+            isMetaMask: true,
+            request: async ({ method }) => {
+              metodos.push(method);
+              if (method === "eth_accounts") return cuentasU.slice();
+              if (method === "eth_requestAccounts") {
+                const error = new Error("User rejected the request.");
+                error.code = 4001;
+                throw error;
+              }
+              if (method === "eth_chainId") return "0x7a69"; // anvil (31337)
+              if (method === "wallet_revokePermissions") return null;
+              if (method === "eth_blockNumber") return "0x2";
+              throw new Error("método no esperado: " + method);
+            },
+            on: () => {},
+          };
+          return { metodos, wallet };
+        };
+        const frameU = document.getElementById("landing");
+        // Primer listener del `load` (se registra antes de navegar): la wallet
+        // ya está en `window` cuando el arranque de la página la consulta.
+        frameU.addEventListener("load", () => {
+          walletU = crearWalletU();
+          frameU.contentWindow.ethereum = walletU.wallet;
+        });
+        /** Navega a `url` —o recarga, con `url` nulo— y espera el `load`. */
+        const irA = (frame, url) =>
+          new Promise((res) => {
+            frame.addEventListener("load", res, { once: true });
+            if (url) frame.src = url;
+            else frame.contentWindow.location.reload();
+            setTimeout(res, 20000);
+          });
+        const URL_U = "/?rpc=" + encodeURIComponent("http://127.0.0.1:1");
+        /** El navbar de la página (exista o no la conexión: el estado se mira aparte). */
+        const navbarU = (w, timeout = 25000) =>
+          esperar(() => {
+            const host = w.document.querySelector("whiskito-navbar");
+            return host?.shadowRoot ? { host, root: host.shadowRoot } : null;
+          }, timeout);
+
+        // U1. La landing, RECARGADA, con la cuenta ya autorizada en la wallet.
+        await irA(frameU, URL_U);
+        await irA(frameU, null);
+        const winU = frameU.contentWindow;
+        const navU = await navbarU(winU);
+        const conectadoU = await esperar(
+          () => navU && navU.host.connectionState === "connected",
+          25000
+        );
+        const cuentaU = navU?.host.account ?? "";
+        const codeU = navU?.root.querySelector(".nav-account code");
+        const botonU = navU?.root.querySelector("#connectButton");
+        const textoU = textoDe(botonU);
+        check(
+          "U1 al recargar la landing con una cuenta YA autorizada, la app queda CONECTADA sola (navbar con la cuenta y estado `connected`)",
+          Boolean(conectadoU) &&
+            navU.host.connectionState === "connected" &&
+            cuentaU.toLowerCase() === CUENTA_U.toLowerCase() &&
+            (codeU?.textContent ?? "").toLowerCase() === SHORT_U.toLowerCase() &&
+            visibleEn(winU, codeU) &&
+            /conectado/i.test(textoU),
+          `estado=${navU?.host.connectionState ?? "sin navbar"} cuenta=${cuentaU || "ninguna"} ` +
+            `code="${codeU?.textContent ?? ""}" visible=${visibleEn(winU, codeU)} ` +
+            `boton="${textoU}" esperado="${SHORT_U}"`
+        );
+
+        // U2. La prueba de que la reconexión fue SILENCIOSA: la wallet vio el
+        // `eth_accounts` de la reconexión y NUNCA un pedido de permiso.
+        const metodosU = [...(walletU?.metodos ?? [])];
+        check(
+          "U2 la reconexión no abrió ningún prompt: la wallet vio `eth_accounts` y NUNCA `eth_requestAccounts`",
+          metodosU.includes("eth_accounts") &&
+            !metodosU.includes("eth_requestAccounts"),
+          `métodos=[${metodosU.join(", ")}]`
+        );
+
+        // U3. Control negativo del camino OPUESTO: es lo que contesta la wallet
+        // después de un "Desconectar" (el permiso revocado), y ahí la landing
+        // tiene que quedar como está hoy: desconectada y sin cuenta.
+        cuentasU = [];
+        await irA(frameU, null);
+        const winU3 = frameU.contentWindow;
+        const navU3 = await esperar(() => {
+          const host = winU3.document.querySelector("whiskito-navbar");
+          return host?.shadowRoot ? { host, root: host.shadowRoot } : null;
+        }, 20000);
+        // No se afirma "quedó desconectada" sobre una página que todavía no
+        // arrancó: se espera a que el arranque haya pasado por la reconexión
+        // (que es la que pregunta) y recién ahí se mira el navbar.
+        const preguntoU3 = await esperar(
+          () => (walletU?.metodos ?? []).includes("eth_accounts"),
+          15000
+        );
+        await sleep(1000);
+        const cuentaU3 = navU3?.host.account ?? "";
+        const botonU3 = navU3?.root.querySelector("#connectButton");
+        check(
+          "U3 control negativo: con `eth_accounts` en `[]` la landing queda desconectada (navbar `disconnected`, sin cuenta)",
+          Boolean(navU3) &&
+            preguntoU3 !== null &&
+            navU3.host.connectionState === "disconnected" &&
+            cuentaU3 === "" &&
+            /conectar wallet/i.test(textoDe(botonU3)) &&
+            !(walletU?.metodos ?? []).includes("eth_requestAccounts"),
+          `estado=${navU3?.host.connectionState ?? "sin navbar"} cuenta="${cuentaU3}" ` +
+            `preguntó=${preguntoU3 !== null} boton="${textoDe(botonU3)}" ` +
+            `métodos=[${(walletU?.metodos ?? []).join(", ")}]`
+        );
+
+        const fallas = results.filter((r) => r.startsWith("FALLA"));
+        const veredicto = fallas.length
+          ? `FALLOS(${fallas.length}/${results.length}) :: ` + fallas.join(" ;; ")
+          : `OK(${results.length}/${results.length}) :: /historial redirige a /historial.html, la isla monta, la donación real aparece como fila (${EXP_DONOR_SHORT} · ${EXP_AMOUNT_CELL} · ${EXP_USD_CELL}), sin explorador no hay columna Tx, sin dirección hay aviso y botón, un error de lectura no se ve como vacío, el header es el navbar de la landing (links a la landing, «Volver al inicio» visible y sin controles de wallet; en la landing nada de eso aparece), la tarjeta ocupa el ancho y el alto que sobra, y volver a la landing NO desloguea: recargada con la cuenta ya autorizada queda conectada sola y sin pedir permiso, y con la wallet en «[]» queda desconectada`;
+        reportar(veredicto + " ;; " + results.join(" | "));
+      } catch (error) {
+        // Se reportan también las comprobaciones ya hechas: si algo revienta en
+        // el medio, el veredicto tiene que decir dónde.
+        reportar("ERROR :: " + (error?.message ?? String(error)) + " ;; " + results.join(" | "));
+      }
+    </script>
+  </body>
+</html>
