@@ -1,6 +1,10 @@
+const LOCAL_CHAIN_ID = 31337;
+/** chainId de Polygon Amoy: la red de la publicación. */
+const PUBLISHED_CHAIN_ID = 80002;
+
 export const NETWORKS = {
   //Local
-  31337: {
+  [LOCAL_CHAIN_ID]: {
     name: "anvil",
     fund: "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
     deployBlock: 0,
@@ -11,7 +15,7 @@ export const NETWORKS = {
     professional: "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
   },
   //testnet
-  80002: {
+  [PUBLISHED_CHAIN_ID]: {
     name: "amoy",
     nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
     fund: "0xc92b0cAB9Bd6247250d483613B804593c7f3fEF8",
@@ -24,10 +28,6 @@ export const NETWORKS = {
 };
 
 /** chainId de anvil: la red del desarrollo local. */
-const LOCAL_CHAIN_ID = 31337;
-/** chainId de Polygon Amoy: la red de la publicación. */
-const PUBLISHED_CHAIN_ID = 80002;
-
 function isLocalHostname(hostname) {
   const host = String(hostname)
     .toLowerCase()
