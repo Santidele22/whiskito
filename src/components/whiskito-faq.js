@@ -58,7 +58,7 @@ export class WhiskitoFaq extends WhiskitoElement {
             <p>
               Whiskito cobra <b>0% de comisión</b>: el 100% de tu donación llega
               a quien la recibe. Pero existe algo llamado <b>gas</b> (una pequeña
-              tarifa que cobra la red Ethereum por procesar cada transacción — va
+              tarifa que cobra la red Polygon por procesar cada transacción — va
               para la red, no para nosotros). Tu wallet siempre te muestra el
               costo total antes de confirmar: sin sorpresas.
             </p>
@@ -69,8 +69,8 @@ export class WhiskitoFaq extends WhiskitoElement {
             <p>
               Porque queda <b>grabado en la blockchain</b>: un libro contable
               público que nadie puede editar ni borrar. En segundos ves tu
-              donación confirmada, con un enlace a <b>Etherscan</b> (el buscador
-              de Ethereum), donde podés ver la transacción tal como quedó
+              donación confirmada, con un enlace a <b>Polygonscan</b> (el buscador
+              de Polygon), donde podés ver la transacción tal como quedó
               registrada. Para siempre. Sin pedirle a nadie que te crea: está a
               la vista de todos.
             </p>

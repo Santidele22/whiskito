@@ -67,9 +67,9 @@ export class WhiskitoTrust extends WhiskitoElement {
                 <span
                   class="tt"
                   tabindex="0"
-                  data-tip="Etherscan = el buscador de transacciones de Ethereum. Typeás una dirección y ves todo su historial, como un extracto bancario público."
-                  >Etherscan</span
-                >, el buscador de transacciones de Ethereum.
+                  data-tip="Polygonscan = el buscador de transacciones de Polygon. Typeás una dirección y ves todo su historial, como un extracto bancario público."
+                  >Polygonscan</span
+                >, el buscador de transacciones de Polygon.
               </p>
             </div>
           </li>

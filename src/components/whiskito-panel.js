@@ -620,7 +620,7 @@ export class WhiskitoPanel extends WhiskitoElement {
           </div>
 
           <p class="r-foot">
-            Whiskito · recibo de barra · verificable en Etherscan
+            Whiskito · recibo de barra · verificable en Polygonscan
           </p>
 
           <template data-item>

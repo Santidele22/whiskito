@@ -27,7 +27,7 @@ de lo que hay hoy y lo que falta.
 | **RedeemShop** | contrato propio | canjea el token por premios | 🔲 futuro |
 | **BadgeNFT** | ERC721 | coleccionables, por canje o por hito | 🔲 futuro |
 | **Factory** | contrato propio | un `Fund` por creador | 🔲 futuro — hoy hay **un contrato compartido** |
-| **Deploy en Polygon Amoy** | — | red pública de pruebas donde se publica la app | ⚠️ el `Fund` desplegado (`0xc92b…3fEF8`, bloque 48371056) **todavía usa el feed ETH/USD**: el redeploy del `PolUsdAdapter` + `Fund` nuevos está **pendiente** (§6.1) |
+| **Deploy en Polygon Amoy** | — | red pública de pruebas donde se publica la app | ⚠️ el `Fund` desplegado (`0xc92b…3fEF8`, bloque 48371056) **sigue valuando POL con el precio de ETH y con el piso viejo**: medido en la chain, `getConversionRate(1e18)` = **$2.692,52** y `MINIMUM_USD()` = **0,5 USD** (el repo ya dice 0,01). El redeploy del `PolUsdAdapter` + `Fund` nuevos está **pendiente** (§6.1) |
 | **Publicación en Vercel** | — | publicar el `dist/` del build | ✅ **https://whiskito.vercel.app** — proyecto `whiskito`, conectado al repo: `main` despliega solo (§6.1) |
 
 ## 1. Resumen
@@ -335,8 +335,9 @@ landing, nadie en el link).
 - **Los montos se etiquetan en POL** en la tarjeta de donación, el panel y el dashboard ("Monto en
   POL", la unidad del balance, la columna de la tabla y el resumen). Los identificadores internos
   (`amountEth`, `balanceEth`, `data-field="eth"`) **siguen igual**: son la API entre islas y harness.
-  Las secciones **estáticas** (hero, trust, footer, cómo funciona) todavía dicen ETH y anuncian
-  "Mínimo: 0,5 USD": se resuelven aparte (§8).
+  Las secciones **estáticas** (hero, trust, footer, cómo funciona) también dicen POL, y el link del
+  footer dejó de ser un `href="#"` muerto: sale de `NETWORKS[red].explorer` + `fund` —Polygonscan en
+  Amoy— y queda `hidden` en una red sin explorador (anvil).
 
 ### 5.5 La página que se comparte (`/u/0x…`)
 
@@ -609,12 +610,16 @@ vive en <https://whiskito.vercel.app> contra Amoy y `main` despliega solo.
    `ETHERSCAN_API_KEY` en el `.env` (§6.1). Con el redeploy hay que verificar también el
    `PolUsdAdapter`.
 6. **Redeploy en Amoy del `PolUsdAdapter` y del `Fund`** — el código ya está (§3.2), pero la chain
-   todavía tiene el `Fund` valuado con ETH/USD. Lo corre el usuario con `bun run deploy:amoy`
-   (§6.1), pega las dos direcciones en `config.js` y confirma con `check-config`.
-7. **Regenerar el ancla estática del rediseño** — las secciones **estáticas** (hero, trust, footer,
-   cómo funciona) todavía dicen ETH y anuncian "Mínimo: 0,5 USD", mientras la tarjeta, el panel y el
-   dashboard ya etiquetan los montos en POL (§5.4). Se regenera con el control negativo que exige
-   §5 de `AGENTS.md`.
+   todavía tiene el `Fund` viejo. Medido en la chain con `cast call`: `getConversionRate(1e18)` =
+   **$2.692,52** (o sea, el feed ETH/USD) y `MINIMUM_USD()` = **5e17** (0,5 USD, no el `1e16` del
+   repo). Contra el POL/USD real derivado de las dos patas de Amoy (≈ **$0,1010**), eso significa que
+   hoy **todo importe en USD que muestra la UI está inflado ~26.660×** y que el piso efectivo es
+   ~0,000186 POL, ≈533× por debajo del previsto para después del redeploy (0,099 POL). Lo corre el
+   usuario con `bun run deploy:amoy` (§6.1), pega las dos direcciones en `config.js` y confirma con
+   `check-config`.
+7. **Sincronizar `DESIGN-SPEC.md`** — el spec del rediseño todavía dice «Mínimo: 0,5 USD» (el piso
+   real es 0,01) y no documenta el link al explorador del footer, que ahora sale de la red. El ancla
+   `redesign-static.html` **ya está regenerada** y su bloque F verificado con control negativo (§5.4).
 8. **Deploy en Sepolia** — otra red (Ethereum, `chainId 11155111`), no la publicada: con el
    aggregator **real** de Chainlink (no el mock local) y descomentando y completando la entrada de
    `NETWORKS` en `src/js/config.js` con la dirección que salga de la documentación de Chainlink para

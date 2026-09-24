@@ -102,6 +102,21 @@ export function setShareBase(base) {
   shareCard.shareBase = base;
 }
 
+/**
+ * El link al explorador del footer: la base del explorador de la red efectiva y
+ * la dirección del contrato en ESA red. Sin explorador (anvil) el footer esconde
+ * el link en vez de dejarlo apuntando a `#`.
+ *
+ * Se pasan como dos datos y no como una URL armada: quién arma el link es la
+ * isla, que es la dueña de su DOM.
+ */
+export function setExplorer({ explorer, fund } = {}) {
+  const footer = findIsland("whiskito-footer");
+  if (!footer) return;
+  footer.explorer = explorer ?? "";
+  footer.fund = fund ?? "";
+}
+
 /** La dirección que se comparte; vacío = todavía no hay QR que mostrar. */
 export function setShareAddress(address) {
   const shareCard = findIsland("whiskito-share-card");

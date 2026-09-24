@@ -115,6 +115,13 @@ whiskito-radio[hidden] {
   display: none;
 }
 
+/* En una red sin explorador (anvil) el link del footer queda `hidden`: sin esta
+   regla el `display: flex` de `.footer-links a` le ganaría al [hidden] del
+   navegador y el link muerto se vería igual. */
+.footer-links a[hidden] {
+  display: none;
+}
+
 /* ---------- Secciones ---------- */
 .section {
   max-width: 1200px;

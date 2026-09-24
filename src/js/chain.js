@@ -24,7 +24,7 @@ const accountChangeHandlers = new Set();
  */
 let accountsSubscribed = false;
 
-const DEFAULT_NATIVE_CURRENCY = { name: "Ether", symbol: "ETH", decimals: 18 };
+const DEFAULT_NATIVE_CURRENCY = { name: "POL", symbol: "POL", decimals: 18 };
 
 export function chainFromConfig(config) {
   return defineChain({

@@ -343,6 +343,12 @@ function onDashboardClose() {
 // Estado inicial: las islas nacen sin datos, alguien se los tiene que dar.
 async function bootstrap() {
   islands.setShareBase(SITE);
+  // El link al explorador del footer sale de la RED (no está hardcodeado): en
+  // Amoy apunta al contrato en Polygonscan y en anvil —que no tiene explorador—
+  // el footer esconde el link. Es el mismo dato que `donate.js` le pasa al modal
+  // del veredicto.
+  const red = getActiveNetwork();
+  islands.setExplorer({ explorer: red?.explorer, fund: red?.fund });
   // La landing invita en modo demo: el aviso vive en la tarjeta, y quien lo
   // prende es este flujo (la página del link no lo prende nunca).
   islands.setDonateDemo(DEMO);
