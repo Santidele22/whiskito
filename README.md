@@ -60,6 +60,60 @@ donante ──fund(profesional)──▶ Fund ──▶ balances[profesional] �
 | islas (componentes) | `src/components/` | 11 web components que se pintan solos y avisan por eventos |
 | verificación | `.refactor-baseline/` | harness e2e en navegador real, sondas y anclas congeladas |
 
+### 2.1 Diagramas de arquitectura
+
+Tres diagramas de la app, generados con **[archify](https://github.com/tt-a1i/archify)** (skill de
+agente, MIT, instalada como plugin de DSH `@tt-a1i/archify-dsh@0.1.0`) y versionados en el repo —
+spec JSON como fuente, HTML como artefacto:
+
+| diagrama | spec (fuente) | HTML | qué muestra |
+|---|---|---|---|
+| arquitectura de runtime | `docs/architecture/runtime.architecture.json` | `docs/architecture/runtime.architecture.html` | las 11 islas y su frontera (`islands.js`), los flujos (`main.js` → `app.js`/`donate.js`), los módulos de acceso a la chain y las dos fronteras externas (wallet EIP-1193 y RPC por HTTP), con la frontera de confianza |
+| secuencia de la donación | `docs/architecture/donation.sequence.json` | `docs/architecture/donation.sequence.html` | el camino real de `/u/0x…`: precio por HTTP, conexión (y el pedido de cambio de red), la guarda del dueño, simular → firmar → confirmar, y las ramas de fallo (rechazo 4001, `status: 0x0`, `StalePrice()`) |
+| flujo de fondos | `docs/architecture/funds.dataflow.json` | `docs/architecture/funds.dataflow.html` | el valor nativo (donante → `Fund` → `balances[professional]` → `withdraw`/`withdrawAll`), el precio (oráculo → `usdValue` en el struct `Donation` y en el evento `Funded`) y las lecturas (eventos reales por ventanas de 5.000 bloques → islas) |
+
+Los diagramas **describen** la app: no son parte de la puerta de verificación (§7) y ningún job del
+CI los mira.
+
+**Instalar el plugin** (una vez por perfil; va con versión exacta a propósito):
+
+```bash
+dsh plugin --profile web add @tt-a1i/archify-dsh@0.1.0
+```
+
+**Regenerarlos.** El CLI es Node puro y cero dependencias: no toca `package.json` y se invoca por
+ruta absoluta.
+
+```bash
+SKILL="$HOME/.dsh/profiles/web/node_modules/@tt-a1i/archify-dsh/skills/archify"
+
+# 1. validar el spec (JSON tipado: uno que no valida no se entrega).
+#    El de arquitectura declara evidencia del repo (`sources`), por eso lleva --repo-root.
+node "$SKILL/bin/archify.mjs" validate architecture docs/architecture/runtime.architecture.json \
+  --quality showcase --json --repo-root .
+node "$SKILL/bin/archify.mjs" validate sequence docs/architecture/donation.sequence.json --quality showcase --json
+node "$SKILL/bin/archify.mjs" validate dataflow docs/architecture/funds.dataflow.json --quality showcase --json
+
+# 2. entregar: escribe el HTML y devuelve los SHA-256 del spec y del artefacto.
+node "$SKILL/bin/archify.mjs" deliver architecture docs/architecture/runtime.architecture.json \
+  docs/architecture/runtime.architecture.html --quality showcase --json --repo-root .
+node "$SKILL/bin/archify.mjs" deliver sequence docs/architecture/donation.sequence.json \
+  docs/architecture/donation.sequence.html --quality showcase --json
+node "$SKILL/bin/archify.mjs" deliver dataflow docs/architecture/funds.dataflow.json \
+  docs/architecture/funds.dataflow.html --quality showcase --json
+
+# 3. comprobar el HTML ya entregado (`check` toma UN archivo por vez).
+node "$SKILL/bin/archify.mjs" check docs/architecture/runtime.architecture.html
+node "$SKILL/bin/archify.mjs" check docs/architecture/donation.sequence.html
+node "$SKILL/bin/archify.mjs" check docs/architecture/funds.dataflow.html
+```
+
+Dos aclaraciones honestas: el skill empaquetado en `@tt-a1i/archify-dsh@0.1.0` es **v2.14.0**
+(`skills/archify/package.json`), **atrás de upstream**; y los HTML **no son 100 % autocontenidos**:
+la plantilla de archify carga la tipografía JetBrains Mono desde Google Fonts (asíncrona, con
+fallback a monoespaciada del sistema), así que ése es el único pedido de red — todo lo demás
+(SVG, CSS, JS del visor) va embebido, y los links a GitHub son `<a href>` de evidencia.
+
 ## 3. Contrato `Fund`
 
 ### 3.1 Responsabilidades
@@ -706,7 +760,10 @@ src/
   index.html               la landing (importmap: lucide → node_modules)
   styles.css               hoja global (tokens, reset, secciones en light DOM)
   js/
-    main.js                cableado: datos hacia las islas, eventos hacia afuera
+    main.js                punto de entrada: registra las islas y llama a startApp()
+    app.js                 el flujo de la landing: datos hacia las islas, eventos hacia afuera
+    donate.js              el flujo de la página del link (`/u/0x…`), que cobra de verdad
+    islands.js             la ÚNICA frontera con el DOM
     chain.js               red activa y los dos clientes
     tx.js                  verificaciones y envío de toda escritura
     solidity-functions.js  lecturas y escrituras del contrato

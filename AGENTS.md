@@ -54,6 +54,7 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está pu
 | `src/components/whiskito-dashboard.js` | isla del modal "Mi Panel": la **tabla de todas las donaciones recibidas** por la cuenta conectada, con las filas que le pasa el flujo (**eventos `Funded` reales de la chain**) |
 | `src/fund.abi.json` | ABI generado por forge — **y una segunda copia a mano** en `src/js/fund-abi.js` |
 | `.refactor-baseline/` | andamiaje de verificación, **descartable**; incluye anclas congeladas y `serve.py` |
+| `docs/architecture/` | tres diagramas de la app (spec JSON + HTML) generados con **archify**: arquitectura de runtime, secuencia de la donación y flujo de fondos. Describen, no verifican (README §2.1) |
 | `test/PolUsdAdapter.t.sol` | **18 tests de forge** (ya no está vacío): derivación, frescura por pata (`vm.warp`), decimales mixtos, precios 0/negativos, `updatedAt` = mínimo, `getRoundData`, y el piso de `Fund` (`MINIMUM_USD == 1e16`) |
 
 ## 2. Leyes de arquitectura (no romper)
@@ -179,6 +180,9 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
   `dist/`, se sirve `dist/` con `serve.py`, y el navegador reporta si la app arranca, si hidratan
   los iconos, si el QR se dibuja (se sube y se decodifica con `zbarimg`) y si la página pidió
   **alguna** CDN — no debe pedir ninguna.
+- Los diagramas de `docs/architecture/` **no** son parte de la puerta: describen la app, no la
+  verifican. Se regeneran a mano con la skill archify (comandos en README §2.1) y **ningún job del
+  CI los mira**.
 - **Una corrida sin el veredicto crudo pegado no es evidencia.** Y un harness que no puede fallar
   no sirve: si agregás una aserción, comprobá que falla cuando el código está mal (control
   negativo; `.refactor-baseline/README.md` tiene varios ejemplos ya hechos).

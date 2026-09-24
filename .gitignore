@@ -31,7 +31,11 @@ error.log
 /broadcast/**/dry-run/
 
 # Docs
-docs/
+# Todo `docs/` es scratch, **salvo los diagramas de arquitectura**, que sí se versionan
+# (son entregables: README §2.1). Hace falta negar el directorio, no sólo el archivo:
+# git no desciende a un directorio excluido.
+docs/*
+!docs/architecture/
 
 # Dotenv file
 .env

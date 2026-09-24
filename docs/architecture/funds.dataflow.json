@@ -1,0 +1,313 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Whiskito — qué se mueve y adónde",
+    "output": "docs/architecture/funds.dataflow.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      800
+    ],
+    "views": [
+      {
+        "id": "valor",
+        "label": "El valor nativo",
+        "focus": [
+          "donante",
+          "fund",
+          "balances",
+          "profesional"
+        ],
+        "note": "ETH en anvil, POL en Amoy: entra por fund(), queda en balances[professional] y sale con withdraw()."
+      },
+      {
+        "id": "precio",
+        "label": "El precio y el USD",
+        "focus": [
+          "oraculo",
+          "conversion",
+          "donation",
+          "funded"
+        ],
+        "note": "El oráculo decide el equivalente en USD; la UI sólo lo muestra."
+      },
+      {
+        "id": "lecturas",
+        "label": "Las lecturas",
+        "focus": [
+          "funded",
+          "balances",
+          "read",
+          "islas"
+        ],
+        "note": "Todo lo que se ve sale de la chain por HTTP: eventos Funded reales y balances(address)."
+      }
+    ]
+  },
+  "stages": [
+    {
+      "label": "Origen"
+    },
+    {
+      "label": "Contrato"
+    },
+    {
+      "label": "Estado on-chain"
+    },
+    {
+      "label": "Lectura HTTP"
+    },
+    {
+      "label": "Consumo"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "oraculo",
+      "type": "external",
+      "label": "Oráculo POL/USD",
+      "sublabel": "8 decimales",
+      "tag": "decide el USD",
+      "stage": 0,
+      "row": 0
+    },
+    {
+      "id": "donante",
+      "type": "external",
+      "label": "Donante",
+      "sublabel": "firma la wallet",
+      "tag": "origen",
+      "stage": 0,
+      "row": 4
+    },
+    {
+      "id": "conversion",
+      "type": "backend",
+      "label": "Conversión a USD",
+      "sublabel": "factor de escala",
+      "stage": 1,
+      "row": 0
+    },
+    {
+      "id": "fund",
+      "type": "backend",
+      "label": "fund() payable",
+      "sublabel": "mínimo 0,01 USD",
+      "tag": "única puerta",
+      "stage": 1,
+      "row": 4
+    },
+    {
+      "id": "donation",
+      "type": "database",
+      "label": "struct Donation",
+      "sublabel": "usdValue grabado",
+      "tag": "en la chain",
+      "stage": 2,
+      "row": 0
+    },
+    {
+      "id": "funded",
+      "type": "messagebus",
+      "label": "evento Funded",
+      "sublabel": "log indexado",
+      "tag": "la historia",
+      "stage": 2,
+      "row": 2
+    },
+    {
+      "id": "balances",
+      "type": "database",
+      "label": "balances",
+      "sublabel": "saldo acreditado",
+      "tag": "la autoridad",
+      "stage": 2,
+      "row": 4
+    },
+    {
+      "id": "read",
+      "type": "backend",
+      "label": "readContract()",
+      "sublabel": "RPC por HTTP",
+      "tag": "sin wallet",
+      "stage": 3,
+      "row": 2
+    },
+    {
+      "id": "islas",
+      "type": "frontend",
+      "label": "Islas",
+      "sublabel": "tarjeta · panel",
+      "tag": "sólo muestran",
+      "stage": 4,
+      "row": 2
+    },
+    {
+      "id": "profesional",
+      "type": "external",
+      "label": "Profesional",
+      "sublabel": "recibe el retiro",
+      "tag": "dueño de la página",
+      "stage": 4,
+      "row": 4
+    }
+  ],
+  "flows": [
+    {
+      "id": "valor-nativo",
+      "from": "donante",
+      "to": "fund",
+      "label": "valor nativo (ETH · POL)",
+      "classification": "payable",
+      "variant": "emphasis",
+      "labelAt": [
+        207,
+        660
+      ]
+    },
+    {
+      "id": "precio-oraculo",
+      "from": "oraculo",
+      "to": "conversion",
+      "label": "latestRoundData()",
+      "classification": "del oráculo",
+      "variant": "security",
+      "labelAt": [
+        207,
+        210
+      ]
+    },
+    {
+      "id": "usd-value",
+      "from": "conversion",
+      "to": "fund",
+      "label": "usdValue (18 decimales)",
+      "classification": "18 decimales",
+      "labelAt": [
+        315,
+        320
+      ]
+    },
+    {
+      "id": "struct",
+      "from": "fund",
+      "to": "donation",
+      "label": "struct Donation",
+      "classification": "se guarda",
+      "labelAt": [
+        390,
+        250
+      ],
+      "channelX": 390,
+      "route": "vertical-channel"
+    },
+    {
+      "id": "evento",
+      "from": "fund",
+      "to": "funded",
+      "label": "emite Funded",
+      "classification": "log indexado",
+      "labelAt": [
+        455,
+        500
+      ],
+      "channelX": 455,
+      "route": "vertical-channel"
+    },
+    {
+      "id": "acredita",
+      "from": "fund",
+      "to": "balances",
+      "label": "msg.value",
+      "classification": "acreditado",
+      "labelAt": [
+        422,
+        660
+      ]
+    },
+    {
+      "id": "historia",
+      "from": "funded",
+      "to": "read",
+      "label": "eth_getLogs",
+      "classification": "5.000 bloques",
+      "labelAt": [
+        637,
+        340
+      ]
+    },
+    {
+      "id": "balance",
+      "from": "balances",
+      "to": "read",
+      "label": "balances(address)",
+      "classification": "por HTTP",
+      "labelAt": [
+        637,
+        500
+      ]
+    },
+    {
+      "id": "filas",
+      "from": "read",
+      "to": "islas",
+      "label": "filas · balance · precio",
+      "classification": "la ven las islas",
+      "labelAt": [
+        852,
+        462
+      ]
+    },
+    {
+      "id": "retiro",
+      "from": "balances",
+      "to": "profesional",
+      "label": "withdraw() · withdrawAll()",
+      "classification": "al dueño",
+      "variant": "emphasis",
+      "labelAt": [
+        745,
+        660
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Frontera de confianza",
+      "items": [
+        "El equivalente en USD lo decide el oráculo, no la UI",
+        "El precio que muestra la tarjeta es sólo para mostrar",
+        "Las llaves nunca salen de la wallet: el navegador no firma solo"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Lo que NO se mueve",
+      "items": [
+        "La donación en demo no se anota en ningún lado: no es plata",
+        "La verdad es la chain, no el estado local (no hay localStorage como fuente)",
+        "withdraw usa balances[msg.sender]: nunca se le pasa una dirección"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Las lecturas",
+      "items": [
+        "RPC por HTTP → readContract; no pasan por la wallet",
+        "La historia son eventos Funded reales, no un registro propio",
+        "Ventanas de 5.000 bloques con piso en deployBlock (anvil 0 · Amoy 48371056)"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "El precio",
+      "items": [
+        "priceFeedDecimals se lee una vez, en el constructor",
+        "usdValue sale en 18 decimales y queda en el struct y en el evento",
+        "En Amoy el POL/USD es derivado: LINK/USD ÷ LINK/MATIC, 8 decimales"
+      ]
+    }
+  ]
+}

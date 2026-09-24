@@ -1,0 +1,607 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Whiskito — arquitectura de runtime",
+    "output": "docs/architecture/runtime.architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/Santidele22/whiskito",
+      "revision": "11ffb27a950fca33f4edec4a48aee15347a8eb4b"
+    },
+    "views": [
+      {
+        "id": "lectura",
+        "label": "Camino de lectura",
+        "focus": [
+          "pages",
+          "islands",
+          "dom",
+          "flows",
+          "sfn",
+          "chain",
+          "rpc",
+          "fund"
+        ],
+        "note": "Leer no necesita wallet: el cliente de lectura va por HTTP al RPC de la red activa."
+      },
+      {
+        "id": "escritura",
+        "label": "Camino de escritura",
+        "focus": [
+          "flows",
+          "sfn",
+          "tx",
+          "chain",
+          "wallet",
+          "fund"
+        ],
+        "note": "Toda escritura pasa por tx.js: simular → firmar → confirmar el recibo."
+      },
+      {
+        "id": "fronteras",
+        "label": "Fronteras externas",
+        "focus": [
+          "wallet",
+          "rpc",
+          "fund",
+          "oracle",
+          "config"
+        ],
+        "note": "La wallet firma, el RPC lee, el oráculo decide el equivalente en USD."
+      }
+    ]
+  },
+  "layout": {
+    "mode": "grid",
+    "origin": [
+      40,
+      60
+    ],
+    "cols": 6,
+    "gapX": 150,
+    "gapY": 200,
+    "cellW": 150,
+    "cellH": 72
+  },
+  "components": [
+    {
+      "id": "pages",
+      "type": "frontend",
+      "label": "Páginas",
+      "sublabel": "index.html · donate.html",
+      "tag": "sin bundler",
+      "row": 0,
+      "col": 0,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/index.html",
+          "line": 42,
+          "label": "módulo ES, sin bundler"
+        },
+        {
+          "path": "src/donate.html",
+          "line": 26,
+          "label": "la página de /u/0x…"
+        }
+      ]
+    },
+    {
+      "id": "islands",
+      "type": "frontend",
+      "label": "11 islas",
+      "sublabel": "web components",
+      "row": 1,
+      "col": 0,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/components/index.js",
+          "line": 15,
+          "label": "registro de las 11 islas"
+        }
+      ]
+    },
+    {
+      "id": "dom",
+      "type": "frontend",
+      "label": "islands.js",
+      "sublabel": "frontera con el DOM",
+      "tag": "única",
+      "row": 1,
+      "col": 1,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/js/islands.js",
+          "line": 233,
+          "label": "listeners de los eventos"
+        },
+        {
+          "path": "src/js/islands.js",
+          "line": 2,
+          "label": "document.querySelector"
+        }
+      ]
+    },
+    {
+      "id": "flows",
+      "type": "backend",
+      "label": "Flujos",
+      "sublabel": "main.js → app.js · donate.js",
+      "row": 1,
+      "col": 2,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/js/main.js",
+          "line": 4,
+          "label": "sin lógica: registra y arranca"
+        },
+        {
+          "path": "src/js/app.js",
+          "line": 425,
+          "label": "startApp()"
+        },
+        {
+          "path": "src/js/donate.js",
+          "line": 309,
+          "label": "flujo de la donación"
+        }
+      ]
+    },
+    {
+      "id": "tx",
+      "type": "security",
+      "label": "tx.js",
+      "sublabel": "simular → firmar → confirmar",
+      "tag": "única vía",
+      "row": 0,
+      "col": 3,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/js/tx.js",
+          "line": 94,
+          "label": "writeAndConfirm"
+        },
+        {
+          "path": "src/js/tx.js",
+          "line": 81,
+          "label": "confirmReceipt mira el status"
+        }
+      ]
+    },
+    {
+      "id": "sfn",
+      "type": "backend",
+      "label": "solidity-functions.js",
+      "sublabel": "lecturas + fund/withdraw",
+      "row": 1,
+      "col": 3,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/js/solidity-functions.js",
+          "line": 10,
+          "label": "readContract"
+        },
+        {
+          "path": "src/js/solidity-functions.js",
+          "line": 165,
+          "label": "fund()"
+        }
+      ]
+    },
+    {
+      "id": "config",
+      "type": "backend",
+      "label": "config.js",
+      "sublabel": "NETWORKS por chainId",
+      "tag": "módulo hoja",
+      "row": 0,
+      "col": 2,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/js/config.js",
+          "line": 1,
+          "label": "NETWORKS"
+        },
+        {
+          "path": "src/js/config.js",
+          "line": 61,
+          "label": "DEFAULT_CHAIN_ID según el origen"
+        }
+      ]
+    },
+    {
+      "id": "chain",
+      "type": "backend",
+      "label": "chain.js",
+      "sublabel": "red activa · 2 clientes",
+      "row": 1,
+      "col": 4,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/js/chain.js",
+          "line": 73,
+          "label": "cliente de lectura por HTTP"
+        },
+        {
+          "path": "src/js/chain.js",
+          "line": 227,
+          "label": "cliente de wallet"
+        }
+      ]
+    },
+    {
+      "id": "rpc",
+      "type": "cloud",
+      "label": "RPC por HTTP",
+      "sublabel": "anvil · publicnode Amoy",
+      "row": 2,
+      "col": 4,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/js/chain.js",
+          "line": 76,
+          "label": "transport: http(activeNetwork.rpc)"
+        }
+      ]
+    },
+    {
+      "id": "wallet",
+      "type": "external",
+      "label": "Wallet EIP-1193",
+      "sublabel": "window.ethereum",
+      "row": 0,
+      "col": 5,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/js/chain.js",
+          "line": 91,
+          "label": "hasWallet()"
+        },
+        {
+          "path": "src/js/chain.js",
+          "line": 152,
+          "label": "switchToActiveNetwork()"
+        }
+      ]
+    },
+    {
+      "id": "fund",
+      "type": "backend",
+      "label": "Fund",
+      "sublabel": "balances[msg.sender]",
+      "tag": "Solidity",
+      "row": 1,
+      "col": 5,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/script/fund.sol",
+          "line": 84,
+          "label": "fund(address) payable"
+        },
+        {
+          "path": "src/script/fund.sol",
+          "line": 97,
+          "label": "withdraw"
+        }
+      ]
+    },
+    {
+      "id": "oracle",
+      "type": "external",
+      "label": "AggregatorV3",
+      "sublabel": "mock anvil · PolUsdAdapter",
+      "row": 2,
+      "col": 5,
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/script/deploy.sol",
+          "line": 11,
+          "label": "MockV3Aggregator(8, 2000e8)"
+        },
+        {
+          "path": "src/script/pol-usd-adapter.sol",
+          "line": 13,
+          "label": "POL/USD derivado"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Navegador — sin llaves: la autoridad es el contrato",
+      "wraps": [
+        "pages",
+        "islands",
+        "dom",
+        "flows",
+        "tx",
+        "sfn",
+        "config",
+        "chain"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Chain — anvil 31337 · Polygon Amoy 80002",
+      "wraps": [
+        "fund",
+        "oracle"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "pages-islands",
+      "from": "pages",
+      "to": "islands",
+      "label": "declara islas",
+      "labelAt": [
+        115,
+        226
+      ]
+    },
+    {
+      "id": "islands-dom",
+      "from": "islands",
+      "to": "dom",
+      "label": "eventos whiskito:*",
+      "variant": "emphasis"
+    },
+    {
+      "id": "dom-flows",
+      "from": "dom",
+      "to": "flows",
+      "label": "despacha pedidos"
+    },
+    {
+      "id": "flows-dom",
+      "from": "flows",
+      "to": "dom",
+      "label": "islands.set*()",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          715,
+          430
+        ],
+        [
+          415,
+          430
+        ]
+      ],
+      "labelAt": [
+        565,
+        430
+      ]
+    },
+    {
+      "id": "flows-sfn",
+      "from": "flows",
+      "to": "sfn",
+      "label": "lecturas y fund()"
+    },
+    {
+      "id": "config-flows",
+      "from": "config",
+      "to": "flows",
+      "label": "NETWORKS · SITE",
+      "labelAt": [
+        715,
+        226
+      ]
+    },
+    {
+      "id": "sfn-tx",
+      "from": "sfn",
+      "to": "tx",
+      "label": "escrituras",
+      "variant": "emphasis",
+      "labelAt": [
+        1015,
+        226
+      ]
+    },
+    {
+      "id": "tx-chain",
+      "from": "tx",
+      "to": "chain",
+      "label": "guardas",
+      "fromSide": "right",
+      "toSide": "top",
+      "via": [
+        [
+          1165,
+          90
+        ],
+        [
+          1165,
+          180
+        ],
+        [
+          1315,
+          180
+        ]
+      ],
+      "labelAt": [
+        1315,
+        256
+      ]
+    },
+    {
+      "id": "sfn-chain",
+      "from": "sfn",
+      "to": "chain",
+      "label": "readContract",
+      "labelAt": [
+        1165,
+        362
+      ]
+    },
+    {
+      "id": "chain-wallet",
+      "from": "chain",
+      "to": "wallet",
+      "label": "EIP-1193",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          1465,
+          362
+        ],
+        [
+          1465,
+          90
+        ]
+      ],
+      "labelAt": [
+        1465,
+        226
+      ]
+    },
+    {
+      "id": "chain-rpc",
+      "from": "chain",
+      "to": "rpc",
+      "label": "HTTP",
+      "labelAt": [
+        1315,
+        498
+      ]
+    },
+    {
+      "id": "wallet-fund",
+      "from": "wallet",
+      "to": "fund",
+      "label": "firma",
+      "variant": "security",
+      "labelAt": [
+        1615,
+        226
+      ]
+    },
+    {
+      "id": "rpc-fund",
+      "from": "rpc",
+      "to": "fund",
+      "label": "eth_call · logs",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          1490,
+          634
+        ],
+        [
+          1490,
+          362
+        ]
+      ],
+      "labelAt": [
+        1490,
+        500
+      ]
+    },
+    {
+      "id": "fund-oracle",
+      "from": "fund",
+      "to": "oracle",
+      "label": "latestRoundData()",
+      "labelAt": [
+        1615,
+        498
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Empaquetado y publicación",
+      "items": [
+        "La página se sirve sin bundler: módulos ES + importmap",
+        "viem entra por esm.sh; lucide, por el importmap a node_modules",
+        "El build de Vite (dist/) existe sólo para publicar y no lo mira la verificación"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Islas",
+      "items": [
+        "Cada isla es dueña de su DOM: shadow root si declara static styles",
+        "Avisan hacia afuera con eventos whiskito:* (bubbles + composed)",
+        "Ninguna isla lee la chain ni localStorage por su cuenta",
+        "whiskito-tx-modal sólo lo registra la página de donación"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Capa de contrato",
+      "items": [
+        "Fund: fund(address) payable, withdraw y withdrawAll sobre balances[msg.sender]",
+        "El precio entra por AggregatorV3Interface, leído en el constructor",
+        "anvil usa MockV3Aggregator(8, 2000e8); Amoy, un PolUsdAdapter que deriva POL/USD",
+        "MINIMUM_USD = 1e16 (0,01 USD) y StalePrice pasadas 3 horas"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Frontera de confianza",
+      "items": [
+        "El navegador no tiene llaves: la autoridad es el contrato (balances[msg.sender])",
+        "viewer-role.js sólo decide qué botón se ve (canDonate/canWithdraw): es UI, no permiso",
+        "El precio que muestra la tarjeta es sólo para mostrar; el equivalente en USD lo decide el oráculo"
+      ]
+    }
+  ]
+}

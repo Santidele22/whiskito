@@ -1,0 +1,334 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Whiskito — la donación real de la página del link",
+    "output": "docs/architecture/donation.sequence.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "camino-real",
+        "label": "Camino real",
+        "focus": [
+          "donante",
+          "tarjeta",
+          "flujo",
+          "wallet",
+          "cadena",
+          "fund",
+          "oraculo"
+        ],
+        "note": "La página /u/0x… cobra de verdad: firma la wallet y el recibo se confirma en la chain."
+      },
+      {
+        "id": "ramas-de-fallo",
+        "label": "Ramas de fallo",
+        "focus": [
+          "flujo",
+          "wallet",
+          "cadena",
+          "oraculo",
+          "modal"
+        ],
+        "note": "Rechazo en la wallet, transacción minada revertida y oráculo viejo: tres finales distintos."
+      },
+      {
+        "id": "el-contrato",
+        "label": "El contrato",
+        "focus": [
+          "fund",
+          "oraculo"
+        ],
+        "note": "getConversionRate consulta el oráculo y _fund exige usdValue >= MINIMUM_USD."
+      }
+    ],
+    "viewBox": [
+      928,
+      1000
+    ]
+  },
+  "participants": [
+    {
+      "id": "donante",
+      "type": "external",
+      "label": "Donante",
+      "sublabel": "abre el link"
+    },
+    {
+      "id": "tarjeta",
+      "type": "frontend",
+      "label": "Tarjeta",
+      "sublabel": "whiskito-donate-card"
+    },
+    {
+      "id": "flujo",
+      "type": "frontend",
+      "label": "donate.js",
+      "sublabel": "el flujo de la página"
+    },
+    {
+      "id": "wallet",
+      "type": "external",
+      "label": "Wallet",
+      "sublabel": "EIP-1193"
+    },
+    {
+      "id": "cadena",
+      "type": "cloud",
+      "label": "RPC",
+      "sublabel": "por HTTP"
+    },
+    {
+      "id": "fund",
+      "type": "backend",
+      "label": "Fund",
+      "sublabel": "contrato en Solidity"
+    },
+    {
+      "id": "oraculo",
+      "type": "external",
+      "label": "Oráculo",
+      "sublabel": "AggregatorV3Interface"
+    },
+    {
+      "id": "modal",
+      "type": "frontend",
+      "label": "Modal",
+      "sublabel": "whiskito-tx-modal"
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 300,
+      "label": "Carga y precio"
+    },
+    {
+      "from": 318,
+      "to": 520,
+      "label": "Conexión y guarda del dueño"
+    },
+    {
+      "from": 538,
+      "to": 800,
+      "label": "Escritura y recibo"
+    },
+    {
+      "from": 818,
+      "to": 925,
+      "label": "Veredicto y ramas de fallo"
+    }
+  ],
+  "messages": [
+    {
+      "id": "abre-link",
+      "from": "donante",
+      "to": "flujo",
+      "y": 175,
+      "label": "abre /u/0x74ff…",
+      "variant": "default"
+    },
+    {
+      "id": "lee-precio",
+      "from": "flujo",
+      "to": "cadena",
+      "y": 212,
+      "label": "getConversionRate(1e18)",
+      "variant": "emphasis",
+      "note": "lee por HTTP: la tarjeta necesita el precio aunque nadie haya conectado"
+    },
+    {
+      "id": "precio",
+      "from": "cadena",
+      "to": "flujo",
+      "y": 249,
+      "label": "precio POL/USD",
+      "variant": "return"
+    },
+    {
+      "id": "pinta-tarjeta",
+      "from": "flujo",
+      "to": "tarjeta",
+      "y": 286,
+      "label": "destinatario + precio",
+      "variant": "default"
+    },
+    {
+      "id": "pide-donar",
+      "from": "tarjeta",
+      "to": "flujo",
+      "y": 320,
+      "label": "whiskito:fund-request",
+      "variant": "emphasis"
+    },
+    {
+      "id": "conecta",
+      "from": "flujo",
+      "to": "wallet",
+      "y": 357,
+      "label": "eth_requestAccounts · eth_chainId",
+      "variant": "default"
+    },
+    {
+      "id": "cuenta",
+      "from": "wallet",
+      "to": "flujo",
+      "y": 394,
+      "label": "cuenta + chainId",
+      "variant": "return",
+      "note": "effectiveNetwork sale de la chain de la wallet"
+    },
+    {
+      "id": "pide-red",
+      "from": "flujo",
+      "to": "wallet",
+      "y": 431,
+      "label": "wallet_switchEthereumChain",
+      "variant": "security",
+      "note": "sólo con ?chain=; si la wallet no conoce la red, wallet_addEthereumChain"
+    },
+    {
+      "id": "rechaza-red",
+      "from": "wallet",
+      "to": "flujo",
+      "y": 468,
+      "label": "4001: rechaza el cambio",
+      "variant": "dashed",
+      "note": "connectWallet lanza y suelta el wallet client: no hay quién firme"
+    },
+    {
+      "id": "guarda-dueno",
+      "from": "flujo",
+      "to": "tarjeta",
+      "y": 505,
+      "label": "canDonate recalculado",
+      "variant": "default",
+      "note": "después de conectar: si el que conectó es el dueño, no se firma"
+    },
+    {
+      "id": "simula",
+      "from": "flujo",
+      "to": "cadena",
+      "y": 540,
+      "label": "simulateContract con account",
+      "variant": "emphasis",
+      "note": "simulateWrite: el msg.sender de la simulación es la cuenta real"
+    },
+    {
+      "id": "firma",
+      "from": "flujo",
+      "to": "wallet",
+      "y": 577,
+      "label": "writeContract: eth_sendTransaction",
+      "variant": "security"
+    },
+    {
+      "id": "manda-tx",
+      "from": "wallet",
+      "to": "fund",
+      "y": 614,
+      "label": "fund(0x74ff…) payable",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pide-precio",
+      "from": "fund",
+      "to": "oraculo",
+      "y": 651,
+      "label": "latestRoundData()",
+      "variant": "default",
+      "note": "getConversionRate escala con priceFeedDecimals y devuelve usdValue en 18 decimales"
+    },
+    {
+      "id": "answer",
+      "from": "oraculo",
+      "to": "fund",
+      "y": 688,
+      "label": "answer · updatedAt",
+      "variant": "return",
+      "note": "viejo (>3 h) → StalePrice(); usdValue < MINIMUM_USD → InsufficientAmount()"
+    },
+    {
+      "id": "acredita",
+      "from": "fund",
+      "to": "cadena",
+      "y": 725,
+      "label": "balances[professional] += msg.value",
+      "variant": "return",
+      "note": "y emite Funded(donor, professional, ethAmount, usdValue)"
+    },
+    {
+      "id": "recibo",
+      "from": "cadena",
+      "to": "flujo",
+      "y": 762,
+      "label": "waitForTransactionReceipt",
+      "variant": "return",
+      "note": "confirmReceipt mira el status: viem NO lanza si la tx se minó revertida"
+    },
+    {
+      "id": "modal",
+      "from": "flujo",
+      "to": "modal",
+      "y": 799,
+      "label": "showTxModal(hash, explorer)",
+      "variant": "default"
+    },
+    {
+      "id": "success",
+      "from": "flujo",
+      "to": "tarjeta",
+      "y": 836,
+      "label": "status: success",
+      "variant": "default"
+    },
+    {
+      "id": "revertida",
+      "from": "cadena",
+      "to": "flujo",
+      "y": 873,
+      "label": "status: 0x0 (revertida)",
+      "variant": "dashed",
+      "note": "sin mirar el status la UI diría «¡Whiskito enviado!» con el saldo intacto"
+    },
+    {
+      "id": "cancela",
+      "from": "wallet",
+      "to": "flujo",
+      "y": 910,
+      "label": "4001: cierra la firma",
+      "variant": "dashed",
+      "note": "esCancelacion → el modal dice «Donación cancelada», no un error"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Camino real",
+      "items": [
+        "La página del link no tiene modo demo: fund() firma contra el contrato",
+        "El precio se lee por HTTP, sin wallet conectada",
+        "El recibo se confirma antes de anunciar nada"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Ramas de fallo",
+      "items": [
+        "4001 al cambiar de red: no queda wallet client y no hay quién firme",
+        "4001 al firmar: se distingue de un fallo real («Donación cancelada»)",
+        "status 0x0: la tx se minó revertida y viem no lanza; confirmReceipt sí",
+        "StalePrice(): el oráculo pasó las 3 horas"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Guarda del dueño",
+      "items": [
+        "canDonate se recalcula DESPUÉS de la conexión on-demand",
+        "El dueño de la página no se dona a sí mismo: no hay firma",
+        "El rol es UI: el contrato acredita balances[msg.sender]"
+      ]
+    }
+  ]
+}
