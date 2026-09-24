@@ -13,6 +13,26 @@
       "source": "/u/:addr(0x[0-9a-fA-F]{40})/",
       "destination": "/donate.html?u=:addr",
       "permanent": false
+    },
+    {
+      "source": "/historial",
+      "destination": "/historial.html",
+      "permanent": false
+    },
+    {
+      "source": "/historial/",
+      "destination": "/historial.html",
+      "permanent": false
+    },
+    {
+      "source": "/historial/:addr(0x[0-9a-fA-F]{40})",
+      "destination": "/historial.html?u=:addr",
+      "permanent": false
+    },
+    {
+      "source": "/historial/:addr(0x[0-9a-fA-F]{40})/",
+      "destination": "/historial.html?u=:addr",
+      "permanent": false
     }
   ]
 }
