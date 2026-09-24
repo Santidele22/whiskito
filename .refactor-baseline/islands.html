@@ -140,12 +140,22 @@
           check("G1f `?rpc=`/`?fund=` explícitos se conservan (son perillas independientes)",
             urlConfig(Q_MIXTO).rpc === OV_RPC && urlConfig(Q_MIXTO).fund === OV_FUND,
             `rpc=${urlConfig(Q_MIXTO).rpc} fund=${urlConfig(Q_MIXTO).fund}`);
-          eq("G1g sin ningún param no hay override", urlConfig(""), null);
-          check("G1h `?chain=80002` sigue devolviendo Amoy COMPLETA (nada más cambió)",
+          // Sin NINGUNO de los tres params no hay override; y un param que no es
+          // ninguno de los tres tampoco es un override (`?foo=bar`).
+          check("G1g sin ningún param (ni con un param ajeno, `?foo=bar`) no hay override",
+            urlConfig("") === null && urlConfig("?foo=bar") === null,
+            `""→${urlConfig("")} "?foo=bar"→${urlConfig("?foo=bar")}`);
+          // Los valores REALES de Amoy van como LITERALES a propósito: si se
+          // compararan contra `NETWORKS[80002]`, un `fund` (o un `rpc`) mal
+          // escrito en `src/js/config.js` pasaría —la config se compararía
+          // consigo misma—. Con literales, el typo rompe esta aserción.
+          const AMOY_FUND_REAL = "0xc92b0cAB9Bd6247250d483613B804593c7f3fEF8";
+          const AMOY_RPC_REAL = "https://polygon-amoy-bor-rpc.publicnode.com";
+          check("G1h `?chain=80002` sigue devolviendo Amoy COMPLETA (fund y rpc reales, nada más cambió)",
             urlConfig("?chain=80002").chainId === 80002 &&
-              urlConfig("?chain=80002").rpc === AMOY_CFG.rpc &&
-              urlConfig("?chain=80002").fund === AMOY_CFG.fund,
-            `chainId=${urlConfig("?chain=80002").chainId} rpc=${urlConfig("?chain=80002").rpc}`);
+              urlConfig("?chain=80002").rpc === AMOY_RPC_REAL &&
+              urlConfig("?chain=80002").fund === AMOY_FUND_REAL,
+            `chainId=${urlConfig("?chain=80002").chainId} rpc=${urlConfig("?chain=80002").rpc} fund=${urlConfig("?chain=80002").fund}`);
           // Y la red EFECTIVA de la app (no sólo la config): una página pedida
           // con `?chain=99999` tiene que trabajar contra anvil, con el contrato
           // de anvil y su rpc.
@@ -1607,9 +1617,21 @@
           check("G2a con la wallet en otra red, conectar le PIDE moverse a la red de la página (0x7a69)",
             cambiosG2a.length >= 1 && cambiosG2a[0].params?.[0]?.chainId === "0x7a69",
             `cambios=${JSON.stringify(cambiosG2a)}`);
-          check("G2b la wallet rechazó (4001): no sale NINGUNA transacción",
-            pedidosG2a.every((p) => p.method !== "eth_sendTransaction"),
-            `métodos=${[...new Set(pedidosG2a.map((p) => p.method))].join(",")}`);
+          // Rechazo de la CONEXIÓN (no guarda de escritura). G2b/G2d dicen sólo
+          // esto: `connectWallet()` lanzó al rechazarse el cambio de red, así que
+          // quedó sin `walletClient` y por eso no puede salir ninguna firma. NO
+          // son evidencia de la guarda `requireSigningNetwork` de `tx.js`: con
+          // `walletClient` en `undefined`, `fund()` entra por el atajo
+          // `if (demo || !wallet)` de `src/js/solidity-functions.js:171` y
+          // devuelve el recibo demo —nunca se llega a un camino de firma—. La
+          // evidencia de esa guarda son G2h/G2i (wallet VIVA y desajuste avisado
+          // por `chainChanged`). Acá cada aserción falla si se pide firmar, así
+          // que siguen valiendo como regresión: rechazar el cambio de red no
+          // puede terminar en una firma.
+          check("G2b tras rechazar el cambio de red (4001) la conexión falla y no se firma nada",
+            cardG2a.status === "error" &&
+              pedidosG2a.every((p) => p.method !== "eth_sendTransaction"),
+            `status=${cardG2a.status} métodos=${[...new Set(pedidosG2a.map((p) => p.method))].join(",")}`);
           check("G2c y la app dice el desajuste, con SU mensaje y nombrando las dos redes",
             /tu wallet está en la red/i.test(cardG2a.message ?? "") &&
               /\b80002\b/.test(cardG2a.message ?? "") &&
@@ -1624,7 +1646,7 @@
           await sleep(250);
           cardRootG2a.querySelector("#fundButton").click();
           await sleep(2000);
-          check("G2d donar con la wallet en otra red tampoco manda ninguna transacción",
+          check("G2d y donar después de ese rechazo tampoco firma (no hay wallet client)",
             pedidosG2a.every((p) => p.method !== "eth_sendTransaction"),
             `firmas=${pedidosG2a.filter((p) => p.method === "eth_sendTransaction").length} msj=${cardG2a.message}`);
 
@@ -1738,16 +1760,22 @@
           await sleep(250);
           cardRootG2c.querySelector("#fundButton").click();
           await sleep(2000);
+          // Precondición (misma forma que G2f/G2j): si la app no se suscribió a
+          // `chainChanged`, el disparo de arriba fue un NO-OP silencioso y esta
+          // aserción mediría vacío. Con el conteo adentro, no suscribirse la
+          // hace FALLAR en vez de pasar en verde por la razón equivocada.
           check("G2h con la wallet fuera de la red activa, donar no llega a simular ni a firmar",
-            cardG2c.viewer?.toLowerCase() === DONANTE.toLowerCase() &&
+            (oyentesG2c.get("chainChanged") ?? []).length === 1 &&
+              cardG2c.viewer?.toLowerCase() === DONANTE.toLowerCase() &&
               pedidosG2c.every((p) => p.method !== "eth_sendTransaction"),
-            `viewer=${cardG2c.viewer} firmas=${pedidosG2c.filter((p) => p.method === "eth_sendTransaction").length} métodos=${[...new Set(pedidosG2c.map((p) => p.method))].join(",")}`);
+            `suscripciones=${(oyentesG2c.get("chainChanged") ?? []).length} viewer=${cardG2c.viewer} firmas=${pedidosG2c.filter((p) => p.method === "eth_sendTransaction").length} métodos=${[...new Set(pedidosG2c.map((p) => p.method))].join(",")}`);
           check("G2i y la app dice el desajuste (su propio mensaje, con las dos redes) en vez de fingir una donación",
-            cardG2c.status === "error" &&
+            (oyentesG2c.get("chainChanged") ?? []).length === 1 &&
+              cardG2c.status === "error" &&
               /tu wallet está en la red/i.test(cardG2c.message ?? "") &&
               /\b80002\b/.test(cardG2c.message ?? "") &&
               /\b31337\b/.test(cardG2c.message ?? ""),
-            `status=${cardG2c.status} msj=${cardG2c.message}`);
+            `status=${cardG2c.status} suscripciones=${(oyentesG2c.get("chainChanged") ?? []).length} msj=${cardG2c.message}`);
 
           // ── G2j. La LANDING también sigue el cambio de red ────────────
           // Mismo caso que G2f/G2g, pero en la landing: el navbar no puede
@@ -1794,13 +1822,19 @@
               !pedidosG2d.some((p) => p.method === "wallet_switchEthereumChain"),
             `estado=${navbarG2d.connectionState} suscripciones=${oyentesG2d.get("chainChanged")?.length} métodos=${[...new Set(pedidosG2d.map((p) => p.method))].join(",")}`);
           redG2d = 80002;
+          // Se captura el estado JUSTO ANTES del disparo: si ya no estaba
+          // "connected", el disparo no midió ninguna transición (el default del
+          // navbar es "disconnected") y la aserción no vale nada.
+          const estadoPreG2d = navbarG2d.connectionState;
           for (const handler of oyentesG2d.get("chainChanged") ?? []) handler("0x13882");
           await sleep(1800);
           check("G2k y cuando la wallet cambia de red, la landing lo sigue sin recargar y no queda 'conectada' contra otra red",
-            navbarG2d.connectionState !== "connected" &&
+            (oyentesG2d.get("chainChanged") ?? []).length >= 1 &&
+              estadoPreG2d === "connected" &&
+              navbarG2d.connectionState !== "connected" &&
               pedidosG2d.filter((p) => p.method === "wallet_switchEthereumChain").length >= 1 &&
               pedidosG2d.every((p) => p.method !== "eth_sendTransaction"),
-            `estado=${navbarG2d.connectionState} cambios=${pedidosG2d.filter((p) => p.method === "wallet_switchEthereumChain").length} firmas=${pedidosG2d.filter((p) => p.method === "eth_sendTransaction").length}`);
+            `estadoPre=${estadoPreG2d} estadoPost=${navbarG2d.connectionState} suscripciones=${(oyentesG2d.get("chainChanged") ?? []).length} cambios=${pedidosG2d.filter((p) => p.method === "wallet_switchEthereumChain").length} firmas=${pedidosG2d.filter((p) => p.method === "eth_sendTransaction").length}`);
 
           // ── L. Iconos: Lucide hidratado, y ningún emoji suelto ────
           // El objetivo del cambio era sacar los iconos hardcodeados: acá se
