@@ -639,6 +639,21 @@ icono (la trampa está anotada en la cabecera).
 isla, `open`, `address`, `shareBase`, los eventos `whiskito:share`, el dibujo del
 QR en canvas y los botones de copiar/descargar.
 
+**Fuera de §4 y sin resolver (anotado, no arreglado):**
+
+- **`whiskito-dashboard.js` no tiene subsección acá.** Es el modal "Mi Panel"
+  (600+ líneas) y **duplica el bloque de retiro parcial de §4.8 con los mismos
+  ids**: `#withdrawPartButton`, `#withdrawPart`, `#withdrawAmount`,
+  `#withdrawPartError`, `#withdrawConfirmButton`, `#withdrawCancelButton`
+  (`whiskito-dashboard.js:621-652` contra `whiskito-panel.js:565-611`). No hay
+  colisión real —cada isla vive en su shadow root y los ids no cruzan— pero la
+  funcionalidad está escrita dos veces y este contrato no la documenta. Falta
+  decidir: deduplicar, o darle su propia subsección.
+- **El botón "Cambiar cuenta" del navbar no está cubierto en la página del link.**
+  El probe ejercita `S1`–`S7` sobre la tarjeta de donación y `S8` sobre el navbar
+  **de la landing**; en `/u/0x…` el `#switchButton` existe pero ninguna aserción
+  lo clickea. Es un hueco de cobertura, no un bug.
+
 ---
 
 ## 5. Iconos (Lucide) — reemplazo de los emoji
