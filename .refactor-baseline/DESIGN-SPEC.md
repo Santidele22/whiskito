@@ -102,25 +102,51 @@ No inventes valores nuevos: si algo falta, copiá la regla del sistema.
 ### 4.1 `whiskito-navbar.js` — shadow (isla)
 
 Estructura: `.navbar` (nav) → `.nav-logo` (span.logo-icon + span.logo-text) ·
-`ul.nav-links` (4 `li > a`) · `.nav-actions` (button#connectButton.btn.btn-primary.btn-nav
+`ul.nav-links` (4 `li > a`) · `.nav-actions` (button#dashboardButton.nav-dashboard
++ button#connectButton.btn.btn-primary.btn-nav + button#switchButton.nav-disconnect
 + button#disconnectButton.nav-disconnect).
 
 - logo-icon: `🥃` · logo-text: `Whiskito`
-- links: `Donar` → `#donar`, `Cómo funciona` → `#como-funciona`, `Mi Panel` →
-  `#panel`, `Preguntas` → `#faq`
+- links: `Donar` → `#donar`, `Cómo funciona` → `#como-funciona`, `Resumen` →
+  `#panel`, `Preguntas` → `#faq`. **Ojo: en el navbar el link a `#panel` se llama
+  `Resumen`, no `Mi Panel`** — `Mi Panel` es el texto del botón del modal
+  (`#dashboardButton`, arriba). En el footer (§4.6), en cambio, el link a `#panel`
+  sí dice `Mi Panel`.
 - `LABELS` (texto del botón por estado): `disconnected: "🦊 Conectar Wallet"`,
   `connecting: "⏳ Conectando…"`, `connected: "✅ Conectado"`,
   `unsupported: "🦊 Sin wallet detectada"`
 - botón desconectar: `Desconectar` (sin cambios)
+- botón **Mi Panel** (`button#dashboardButton.nav-dashboard`, con el icono
+  `receipt` adentro): la puerta del modal de donaciones recibidas. Nace
+  `hidden` (`data-attr="hidden:notConnected"`) y lleva
+  `title="Ver todas las donaciones que recibiste"`. Su click **no** lee nada: sólo
+  emite `whiskito:dashboard-request`, que escucha `app.js` (la isla no toca la
+  chain).
+- botón **Cambiar cuenta** (`button#switchButton.nav-disconnect`, el look de
+  "Desconectar"): `data-attr="hidden:notConnected; disabled:isBusy"` y
+  `title="Elegir otra cuenta en la wallet"`. Emite
+  `whiskito:switch-account-request` y quien lo atiende (`app.js`) pide el
+  **selector** de cuentas de la wallet con `wallet_requestPermissions` —no
+  `eth_requestAccounts` a secas: con el permiso ya dado ese método contesta la
+  cuenta seleccionada sin abrir ningún popup— y reconstruye los clientes con la
+  elegida (`switchWalletAccount()` de `chain.js`). Cancelar el selector no toca
+  nada. El mismo botón vive en la tarjeta de donación (`#switchWallet`, §4.7).
+- los cuatro botones de `.nav-actions` llevan `title`: el de conectar lo recibe
+  del estado (`data-attr="…; title:title"`) y sólo avisa cuando no hay wallet
+  detectada.
 
-**Contrato (no tocar):** `observedAttributes`, `state`, ids `#connectButton`,
-`#disconnectButton`, `.nav-account` con `[hidden]`, `<code data-text="shortAddress">`,
-eventos `whiskito:connect-request` / `whiskito:disconnect-request`.
+**Contrato (no tocar):** `observedAttributes`, `state`, ids `#dashboardButton`,
+`#connectButton`, `#switchButton`, `#disconnectButton`, `.nav-dashboard`,
+`.nav-account` con `[hidden]`, `<code data-text="shortAddress">`,
+`<span data-text="label">` (el texto del botón de conectar), los `title`,
+eventos `whiskito:connect-request` / `whiskito:disconnect-request` /
+`whiskito:dashboard-request` / `whiskito:switch-account-request`.
 
 **CSS propio:** reset + `.navbar` (sticky, `background: var(--paper)`,
 `border-bottom: 3px solid var(--ink)`), `.nav-logo`, `.logo-icon`, `.nav-links` +
 `.nav-links a`, `.nav-account`, `.nav-account[hidden]`, `.nav-actions`,
-`.nav-disconnect` (+ `:hover`/`:disabled`/`[hidden]`), `.btn`, `.btn-primary`,
+`.nav-disconnect` (+ `:hover`/`:disabled`/`[hidden]`), `.nav-dashboard`
+(+ `:hover`/`[hidden]`), `.btn`, `.btn-primary`,
 `.btn-nav`, y el `@media (max-width: 768px)` con `.nav-links { display: none }`.
 Adaptá el look de `.nav-disconnect` al poster (borde 2px tinta, tipografía
 `var(--cond)` mayúscula, fondo transparente).
@@ -140,7 +166,7 @@ section.hero
 │   └── div.hero-visual[aria-hidden]
 │       ├── div.vinyl
 │       ├── div.glass-glow          → 🥃
-│       ├── div.float-card.main-card
+│       ├── div.float-card.main-card → div.mc-row (envuelve .mc-who + .mc-amount)
 │       ├── div.float-card.chip-a
 │       ├── div.float-card.chip-b
 │       └── div.stamp-seal
@@ -152,8 +178,9 @@ section.hero
 - badge: `★ Esta noche: gracias, buen trabajo ★`
 - title: `Invitame un` + `.fill-red` = `Whiskito`
 - subtitle: `Una pequeña donación en` + `<em>POL</em>` + `que viaja directo de tu ` +
-  tooltip `wallet` + ` a la de quien te gusta apoyar. Servido neat: sin nadie en
-  el medio. Sin registro, sin comisiones, sin empresas cobrando entrada.`
+  tooltip `wallet` + ` a la de quien te gusta apoyar. Servido neat: ` +
+  `<em>sin nadie en el medio</em>` + `. Sin registro, sin comisiones, sin
+  empresas cobrando entrada.`
   El tooltip conserva el `data-tip` actual (wallet = tu cuenta de cripto…).
 - acciones: `🥃 Quiero invitar un whisky` (href `#donar`, `.btn-primary .btn-lg`) y
   `💸 Quiero recibir donaciones` (href `#recibir`, `.btn-outline .btn-lg`)
@@ -319,10 +346,14 @@ marcador en el `<a>` quedaban 15 iconos en vez de 16 (la trampa está comentada 
 
 ### 4.7 `whiskito-donate-card.js` — shadow (isla) — LA CARTA
 
-Estructura: `div.donate-card` → `h3.card-title` · `p.card-subtitle` ·
-`div.quick-amounts` (4 `button.chip` con `data-usd`) · `div.input-group`
+Estructura: `div.donate-card` → `p.recipient-line` · `h3.card-title` ·
+`p.card-subtitle` · `p.card-demo` · `div.quick-amounts` (4 `button.chip` con
+`data-usd`) · `div.input-group`
 (`label.input-label` + `div.input-wrapper` con `span.input-currency` +
 `input#ehtAmount` + `span.usd-equiv#usdEquivalent`) · `p.card-hint#cardHint` ·
+`div.connect-row` (`span.connect-who` +
+`button#connectWallet.btn.btn-block.btn-ghost` +
+`button#switchWallet.btn.btn-block.btn-ghost`) ·
 `button#fundButton.btn.btn-primary.btn-lg.btn-block` · `div#txStatus.tx-status`
 (`span.tx-spinner` + `span.tx-text#txText`) · `p.card-footnote`.
 
@@ -333,21 +364,76 @@ o el tuyo.` · chips: `🥃 Un sorbo` (0.5) · `🥃 Un whisky` (1) · `🥃🥃
 el precio en tiempo real de un ` + tooltip `oráculo` + ` on-chain.` (conservá el
 `data-tip`).
 
+Tres nodos de la carta que no son copy fija sino estado de la página que la usa
+(`islands.js` les escribe la propiedad, el atributo ES el estado), más la copia
+de estado del aviso de mínimo:
+
+- `p.recipient-line`: a quién le donás. Lo pinta `data-text="recipientText"` y el
+  texto se **interpola en JS**: `Le donás a ` + `shortAddress(recipient)` (o sea
+  `Le donás a 0x1234...abcd`). Nace `hidden`
+  (`data-attr="hidden:recipientHidden"`) y sólo
+  aparece con el atributo `recipient` (`islands.setDonateRecipient`). Es la línea
+  que hace que la página del link (`/u/0x…`) se explique sola.
+- `p.card-demo`: el aviso de **modo demo**. Se muestra con
+  `data-attr="hidden:demoHidden"` y lo prende la página, no la isla: la landing
+  (`islands.setDonateDemo(DEMO)`, con `DEMO` en `true` por defecto), nunca la
+  página del link, que cobra de verdad. Copy literal (el icono va adentro, en el
+  mismo `<p>`, y el `Demo:` va en `<b>`): `<b>Demo:</b> así funciona el link de
+  Whiskito. Probala con o sin wallet: no se firma nada, no se gasta gas y no queda
+  en la blockchain.`
+- `div.connect-row`: la fila de conexión para las páginas **sin navbar**, opt-in
+  con el atributo booleano `show-connect` (`islands.setDonateConnectVisible`; la
+  landing no lo setea). Nace `hidden` (`data-attr="hidden:connectHidden"`).
+  Adentro:
+  - `span.connect-who`: desde qué cuenta se dona. `data-text="viewerText"`, texto
+    interpolado `Donás desde ` + `shortAddress(viewer)`
+    (`Donás desde 0x1234...abcd`); sin cuenta conectada queda `hidden`
+    (`data-attr="hidden:viewerHidden"`, atributo `viewer`).
+  - `button#connectWallet.btn.btn-block.btn-ghost`: `Conectar wallet` (texto
+    literal), visible sólo sin cuenta conectada
+    (`data-attr="hidden:connectButtonHidden"`). Emite
+    `whiskito:connect-request`, el mismo evento del navbar.
+  - `button#switchWallet.btn.btn-block.btn-ghost`: **`Cambiar cuenta`** (texto
+    literal, a propósito sin icono: el conteo de iconos de la isla está
+    verificado). Visible sólo **con** una cuenta conectada
+    (`data-attr="hidden:switchHidden"`). Emite
+    `whiskito:switch-account-request`; la política es del flujo, no de la isla:
+    `app.js` / `donate.js` piden el **selector** de cuentas con
+    `wallet_requestPermissions` —no `eth_requestAccounts` a secas, que con el
+    permiso ya dado devuelve la misma cuenta sin abrir nada— y reconstruyen los
+    clientes con la elegida. En el navbar de la landing el mismo botón es
+    `#switchButton` (§4.1). Lo verifica el probe de la página del link con las
+    aserciones `S1`–`S15`.
+- `p.card-hint#cardHint` pinta uno de dos avisos por `data-text="hintText"`
+  (`data-attr="hidden:hintHidden"`): el piso, **interpolado en JS** — `El mínimo
+  es ` + `minUsd.toFixed(2)` + ` USD ≈ ` + `minEth` + ` POL`, con el monto en POL
+  redondeado hacia arriba a 6 decimales — y, si
+  el visitante es el dueño de la página (atributo `can-donate="false"`,
+  `islands.setDonateCanDonate`), el bloqueo del dueño: `Estás en tu propia página:
+  compartí el link para recibir` (`SELF_DONATION_MESSAGE`, copia literal del
+  mensaje de `app.js`). El bloqueo le gana al aviso del mínimo.
+
 `STATUS_TEXT`: `pending: "Procesando transacción..."`, `success: "¡Whiskito
 enviado! 🥃"`, `error: "No se pudo completar la transacción"`, `idle: ""`.
 
 **Contrato (no tocar):** `observedAttributes`, getters/setters, `get state()`,
-ids `#ehtAmount`, `#usdEquivalent`, `#cardHint`, `#fundButton`, `#txStatus`,
-`#txText`, atributos `data-usd` de los chips, `data-text`/`data-attr`/`data-class`
-existentes, eventos `whiskito:amount-change` / `whiskito:fund-request`.
+ids `#ehtAmount`, `#usdEquivalent`, `#cardHint`, `#connectWallet`, `#switchWallet`,
+`#fundButton`, `#txStatus`, `#txText`, atributos `data-usd` de los chips,
+`data-text`/`data-attr`/`data-class` existentes, eventos `whiskito:amount-change` /
+`whiskito:connect-request` / `whiskito:switch-account-request` /
+`whiskito:fund-request`.
 
 Ojo: `render()` marca el chip elegido con la clase **`is-active`**. El CSS del
 sistema usa `.chip.active`. En el CSS de la isla dejá **las dos**: `.chip.active,
 .chip.is-active { … }` con el look del sistema. No toques `render()`.
 
 **CSS propio:** reset + `.tt` (copia literal del sistema) + `.btn`, `.btn-primary`,
-`.btn-lg`, `.btn-block` (del sistema) + `.donate-card`, `.card-title`,
-`.card-subtitle`, `.quick-amounts`, `.chip` (+ `:hover`, `:disabled`), `.input-group`,
+`.btn-lg`, `.btn-block` (del sistema) + `.btn-ghost` (el mismo lenguaje sin el
+relleno rojo: lo usan los dos botones de `div.connect-row`) + `.donate-card`,
+`.card-title`, `.card-subtitle`, `p.recipient-line` (+ `[hidden]`), `.card-demo`
+(+ `.card-demo .icon`, `.card-demo b`, `[hidden]`), `.connect-row` (+ `[hidden]`),
+`.connect-who` (+ `[hidden]`), `#connectWallet[hidden]` / `#switchWallet[hidden]`,
+`.quick-amounts`, `.chip` (+ `:hover`, `:disabled`), `.input-group`,
 `.input-label`, `.input-wrapper` (+ `:focus-within`), `.input-currency`,
 `.input-wrapper input` (+ `::placeholder`, spin buttons), `.usd-equiv`,
 `.card-footnote`, `.tx-status` (+ `[hidden]`, `.tx-success`, `.tx-error`),
@@ -376,12 +462,23 @@ section.backstage
         ├── p.r-history-title
         ├── div#donationsList
         ├── p.r-empty (estado vacío, data-attr="hidden:hasDonations")
-        ├── div.receipt-actions → button#withdrawButton.btn.btn-primary.btn-block + p.withdraw-status#withdrawStatus
+        ├── div.receipt-actions → button#withdrawButton.btn.btn-primary.btn-block
+        │   · button#withdrawPartButton.btn.btn-block
+        │   · div.withdraw-part#withdrawPart → label.withdraw-part-label +
+        │     input#withdrawAmount.withdraw-part-input +
+        │     p.withdraw-part-error#withdrawPartError +
+        │     div.withdraw-part-actions (button#withdrawConfirmButton.btn.btn-primary
+        │     + button#withdrawCancelButton.btn)
+        │   · p.withdraw-status#withdrawStatus
         └── p.r-foot
 ```
 
 **Copy:** eyebrow `02 · El backstage` · h2 `Tu backstage, tus fondos, tu control`
 · p: `Conectás tu wallet y aparece tu barra personal. Solo ves lo tuyo:`
+· panel-owner: `Panel de ` + `shortAddress(owner)` (`Panel de 0x1234...abcd`) — lo
+pinta `ownerLabel`; sin dueño conocido (landing sin `?u=`) queda vacío y `hidden`
+(`data-attr="hidden:noOwner"`), porque un `<p>` vacío igual ocupa una línea y
+corre el layout.
 · panel-points: `💰` `Cuánto te donaron en total` / `El acumulado de todas las
 rondas que te invitaron.` · `📜` `Quién te invitó, y cuándo` / `Historial completo
 con montos y sus equivalentes en dólares.` · `💸` `Cuánto tenés disponible ahora
@@ -398,8 +495,29 @@ tus fondos. Tus whiskitos, tus reglas.`
 · r-history-title: `Últimas rondas recibidas`
 · `#withdrawButton`: `💸 Retirar todo` (conserva `data-attr="hidden:notOwner;
   disabled:cannotWithdraw"`)
+· `#withdrawPartButton`: `Retirar una parte` (texto literal, sin icono) — la
+  segunda vía de retiro, al lado de "Retirar todo". Conserva
+  `data-attr="hidden:withdrawPartButtonHidden; disabled:cannotWithdraw"`: se ve
+  sólo para el dueño con saldo y **se esconde mientras la fila está abierta**.
+· `#withdrawPart` (`div.withdraw-part`): la fila que despliega ese botón, con
+  `data-attr="hidden:withdrawPartHidden"`. Adentro: `label.withdraw-part-label`
+  `Monto a retirar (POL)` (`for="withdrawAmount"`), `input#withdrawAmount`
+  (`type="number"`, `step="any"`, `min="0"`, `inputmode="decimal"`,
+  `aria-describedby="withdrawPartError"`; **nace vacío** y su `placeholder` es el
+  saldo disponible, lo escribe `render()`),
+  `p.withdraw-part-error#withdrawPartError` (`data-text="withdrawPartErrorText"`,
+  `data-attr="hidden:withdrawPartErrorHidden"`) con el veredicto del monto
+  (`El monto tiene que ser mayor que 0` / `No podés retirar más de lo que tenés`)
+  y `div.withdraw-part-actions` con `#withdrawConfirmButton` (`Confirmar retiro`,
+  `data-attr="disabled:withdrawConfirmDisabled"`) y `#withdrawCancelButton`
+  (`Cancelar`, sin marcadores: cierra la fila y limpia el input). Confirmar emite
+  el mismo `whiskito:withdraw-request` que "Retirar todo", con el monto como
+  texto decimal (`{ amount }`; el retiro total va con `{ amount: null }`).
 · `#withdrawStatus`: conserva `data-text` + `data-attr="hidden:withdrawStatusHidden"`
   + `data-class="is-error:isWithdrawError; is-success:isWithdrawSuccess"`
+· `WITHDRAW_LABELS` (texto por defecto cuando el mensaje viene vacío):
+  `pending: "Retirando…"`, `error: "No se pudo retirar"`, `idle: ""` — el
+  `success` está en §5.3.
 · `template[data-item]` → `div.r-item` con `<code data-field="address">`,
   `span.amt` (`+<span data-field="eth">` POL `<small>≈ $<span data-field="usd">`
   `</small>`) y `span.when[data-field="when"]`
@@ -409,7 +527,9 @@ tus fondos. Tus whiskitos, tus reglas.`
 
 **Contrato (no tocar):** `observedAttributes`, todos los getters/setters y
 `get state()`, ids `#panelOwner`, `#balanceDisplay`, `#balanceUsd`,
-`#withdrawButton`, `#withdrawStatus`, `#donationsList`, `template[data-item]`,
+`#withdrawButton`, `#withdrawPartButton`, `#withdrawPart`, `#withdrawAmount`,
+`#withdrawPartError`, `#withdrawConfirmButton`, `#withdrawCancelButton`,
+`#withdrawStatus`, `#donationsList`, `template[data-item]`,
 todos los `data-text` / `data-attr` / `data-class` / `data-field`, evento
 `whiskito:withdraw-request`, la clase `.panel-owner` (usada por el id), y
 `is-error` / `is-success` en `.withdraw-status`.
@@ -430,13 +550,72 @@ Extra (no está en el sistema): `p.panel-owner` → tipografía `var(--cond)`,
 `p.r-empty` → `color: var(--stamp)`, `font-size: 0.9rem`, italic;
 `p.withdraw-status` → `var(--cond)`, centrado, `margin-top: 10px`, con
 `.is-error { color: var(--blues-red) }` y `.is-success { color: var(--success) }`
-y `[hidden] { display: none }`.
+y `[hidden] { display: none }`;
+`.withdraw-part*` (la fila de retiro parcial) → `.withdraw-part` en columna con
+`gap: 10px`, fondo de tinta al 5 %, borde `2px dashed var(--ink)` y radio `6px`;
+`.withdraw-part-label` en `var(--cond)` mayúscula; `.withdraw-part-input` en
+`'Courier New'` con borde `2px solid var(--ink)` y `:focus` en `var(--cobalt)`;
+`.withdraw-part-error` en `var(--blues-red)`; `.withdraw-part-actions` con
+`.btn { flex: 1 1 auto }`. **Cada nodo que se muestra u oculta declara su
+`[hidden] { display: none }`**: el `display` propio le gana al del navegador (la
+misma trampa de `#withdrawButton`).
 
 ### 4.9 `whiskito-share-card.js` — shadow (isla) — widget flotante
 
 No está en el diseño de referencia (es un overlay del dueño de la página), pero
 **tiene que pertenecer al mismo mundo visual**: papel crema, tinta, sombra dura,
 rojo cartel, mostaza, cobalto.
+
+**Estructura** (dos raíces del shadow root, las dos `position: fixed`):
+
+```
+button#shareTrigger.share-trigger[aria-controls="sharePanel"][aria-expanded]
+  → <i data-lucide="share2"></i> + span[data-text="triggerLabel"] → Compartir
+    (el aria-expanded lo pinta data-attr="aria-expanded:expanded")
+
+aside#sharePanel.share-panel[aria-label="Compartir mi link de Whiskito"][hidden]
+  (data-attr="hidden:panelHidden")
+├── button#shareClose.share-close[aria-label="Cerrar"] → ×
+├── div.share-card#shareCard
+│   ├── p.brand → WHISKITO
+│   ├── h2.share-title#shareTitle → Invitame un <span class="gold">whiskito</span>
+│   ├── div.qr-frame#qrFrame
+│   │   ├── canvas#qrCanvas[width=512][height=512][aria-label="Código QR de mi link de Whiskito"]
+│   │   ├── div.qr-fallback#qrFallback[hidden]
+│   │   │   ├── span.fallback-icon[aria-hidden="true"]
+│   │   │   ├── span → No pudimos generar el QR. Tu link sigue funcionando: copialo y compartilo igual.
+│   │   │   └── span.fallback-hint → Revisá tu conexión y volvé a intentar.
+│   │   └── div.qr-locked#shareLocked
+│   │       ├── span.locked-icon[aria-hidden="true"]
+│   │       └── span.locked-text → Conectá tu wallet para activar tu QR
+│   ├── p.share-link#shareLink → span.link-prefix[data-text="linkPrefix"]
+│   │   (whiskito.app/u/) + span.link-address[data-text="linkAddress"] (tu-wallet)
+│   ├── p.share-trust → 3 × span (span.check + texto) separados por
+│   │   span.dot[aria-hidden="true"] (·)
+│   │   → Directo a mi wallet · 0% comisión · 100% verificable
+│   └── button#shareConnectButton.share-connect[data-attr="hidden:connectHidden"]
+│       → Conectá tu wallet
+└── div.share-actions#shareActions
+    ├── div.share-grid → 4 × button.share-btn[data-network]
+    │   (data-attr="disabled:shareDisabled")
+    │   → #shareWhatsappButton WhatsApp · #shareXButton X ·
+    │     #shareTelegramButton Telegram · #shareFacebookButton Facebook
+    └── div.share-row → 3 × button.share-btn[data-network]
+        → #shareNativeButton Compartir (con
+          data-attr="hidden:nativeHidden; disabled:shareDisabled": sólo si hay
+          navigator.share) · #copyButton (adentro, span.copy-label →
+          Copiar link) · #downloadButton Descargar QR
+```
+
+`open` (atributo booleano) es el estado del panel: decide `panelHidden` y
+`expanded`, y lo cambian el trigger, `#shareClose`, `Escape` y el flujo. Todos
+los `<i data-lucide>` de la isla —los de la tarjeta y los de los siete botones—
+están en §5.3. **La visibilidad del QR no va por marcadores**: la maneja la isla
+contra `#qrFrame` (clase `is-locked`), `#qrCanvas`,
+`#qrFallback` (cuando el CDN de `qrcode` no responde) y `#shareLocked` (sin
+`address`). `#copyButton` pinta `COPY_LABEL` / `COPIED_LABEL` en su
+`span.copy-label` — y **no en el botón**, porque `textContent` se llevaría el
+icono (la trampa está anotada en la cabecera).
 
 - Reemplazá **todos** los tokens viejos por los nuevos: `--beer-gold` →
   `--mustard`, `--beer-gold-soft` → `--mustard`, `--beer-amber` → `--blues-red`,
