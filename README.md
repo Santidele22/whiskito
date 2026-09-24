@@ -57,7 +57,7 @@ donante ──fund(profesional)──▶ Fund ──▶ balances[profesional] �
 | adaptador POL/USD | `src/script/pol-usd-adapter.sol` | `AggregatorV3Interface` que **deriva** POL/USD = LINK/USD ÷ LINK/MATIC (§3.2) |
 | script de deploy en Amoy | `src/script/deploy-amoy.sol` | despliega el `PolUsdAdapter` (POL/USD derivado) y el `Fund` apuntándole (§6.1) |
 | módulos de la app | `src/js/` | config, clientes, lecturas/escrituras, roles, formato, iconos, modo demo y su ledger |
-| islas (componentes) | `src/components/` | 11 web components que se pintan solos y avisan por eventos |
+| islas (componentes) | `src/components/` | 13 web components que se pintan solos y avisan por eventos |
 | verificación | `.refactor-baseline/` | harness e2e en navegador real, sondas y anclas congeladas |
 
 ### 2.1 Diagramas de arquitectura
@@ -68,7 +68,7 @@ spec JSON como fuente, HTML como artefacto:
 
 | diagrama | spec (fuente) | HTML | qué muestra |
 |---|---|---|---|
-| arquitectura de runtime | `docs/architecture/runtime.architecture.json` | `docs/architecture/runtime.architecture.html` | las 11 islas y su frontera (`islands.js`), los flujos (`main.js` → `app.js`/`donate.js`), los módulos de acceso a la chain y las dos fronteras externas (wallet EIP-1193 y RPC por HTTP), con la frontera de confianza |
+| arquitectura de runtime | `docs/architecture/runtime.architecture.json` | `docs/architecture/runtime.architecture.html` | las 12 islas y su frontera (`islands.js`), los flujos (`main.js` → `app.js`/`donate.js`), los módulos de acceso a la chain y las dos fronteras externas (wallet EIP-1193 y RPC por HTTP), con la frontera de confianza |
 | secuencia de la donación | `docs/architecture/donation.sequence.json` | `docs/architecture/donation.sequence.html` | el camino real de `/u/0x…`: precio por HTTP, conexión (y el pedido de cambio de red), la guarda del dueño, simular → firmar → confirmar, y las ramas de fallo (rechazo 4001, `status: 0x0`, `StalePrice()`) |
 | flujo de fondos | `docs/architecture/funds.dataflow.json` | `docs/architecture/funds.dataflow.html` | el valor nativo (donante → `Fund` → `balances[professional]` → `withdraw`/`withdrawAll`), el precio (oráculo → `usdValue` en el struct `Donation` y en el evento `Funded`) y las lecturas (eventos reales por ventanas de 5.000 bloques → islas) |
 
@@ -774,7 +774,7 @@ src/
     dom/icons.js           registro e hidratación de los iconos de Lucide
     utils/format.js        formateo (montos y direcciones cortas)
     roles/viewer-role.js   rol derivado (guest/donor/owner) y la guardia de auto-donación
-  components/              11 web components ("islas") + base-element.js
+  components/              13 web components ("islas") + base-element.js
                            (whiskito-dashboard es el modal "Mi Panel")
 test/                      PolUsdAdapter.t.sol (18 tests de forge)
 .refactor-baseline/        andamiaje de verificación (descartable)

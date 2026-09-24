@@ -49,7 +49,7 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está pu
 | `src/js/config/config.js` | módulo hoja: `NETWORKS` por chainId (con `professional` por red), `professionalFor(chainId)`, `DEFAULT_CHAIN_ID` según el origen, `SITE` |
 | `vite.config.js` | Vite: servidor de desarrollo y `bun run build` → `dist/` (bundle sin CDN); raíz `src` |
 | `scripts/dev.sh` | lo que corre `bun run dev`: anvil (si falta), deploy (si falta) y Vite, con limpieza |
-| `src/components/` | 11 web components ("islas"); `base-element.js` es la base |
+| `src/components/` | 13 web components ("islas"); `base-element.js` es la base |
 | `src/components/whiskito-tx-modal.js` | isla del veredicto de la transacción (aceptada / cancelada); **sólo la página de donación la registra** |
 | `src/components/whiskito-dashboard.js` | isla del modal "Mi Panel": la **tabla de todas las donaciones recibidas** por la cuenta conectada, con las filas que le pasa el flujo (**eventos `Funded` reales de la chain**) |
 | `src/fund.abi.json` | ABI generado por forge — **y una segunda copia a mano** en `src/js/solidity/fund-abi.js` |

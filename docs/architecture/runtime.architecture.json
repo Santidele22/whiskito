@@ -93,7 +93,7 @@
     {
       "id": "islands",
       "type": "frontend",
-      "label": "11 islas",
+      "label": "12 islas",
       "sublabel": "web components",
       "row": 1,
       "col": 0,
@@ -105,7 +105,7 @@
         {
           "path": "src/components/index.js",
           "line": 20,
-          "label": "registro de las 11 islas"
+          "label": "registro de las 12 islas"
         }
       ]
     },
