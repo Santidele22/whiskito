@@ -37,10 +37,10 @@ export function setPanelViewer({ owner, viewer }) {
   panel.viewer = viewer;
 }
 
-export function showPortfolio({ balanceEth, balanceUsd, donations }) {
+export function showPortfolio({ balancePol, balanceUsd, donations }) {
   const panel = findIsland("whiskito-panel");
   if (!panel) return;
-  panel.balanceEth = balanceEth;
+  panel.balancePol = balancePol;
   panel.balanceUsd = balanceUsd;
   panel.donations = donations;
 }
@@ -64,11 +64,11 @@ export function setWithdrawStatus(status, message) {
   }
 }
 
-/** El precio ETH→USD que la tarjeta usa para el equivalente en dólares. */
-export function setEthPrice(price) {
+/** El precio POL→USD que la tarjeta usa para el equivalente en dólares. */
+export function setPolPrice(price) {
   const donateCard = findIsland("whiskito-donate-card");
   if (!donateCard) return;
-  donateCard.ethPrice = price;
+  donateCard.polPrice = price;
 }
 
 /** Estado del envío; el mensaje sólo se pisa si viene uno. */
@@ -209,7 +209,7 @@ export function setGreetingAddress(address) {
  * ni el saldo ni los botones, así que `/historial` —que no lo prende— sigue
  * siendo una página de lectura y sólo la vista del profesional retira desde acá.
  *
- * `balanceEth` / `balanceUsd` son el saldo disponible del dueño (el mismo dato y
+ * `balancePol` / `balanceUsd` son el saldo disponible del dueño (el mismo dato y
  * el mismo formato que el panel): sólo se pintan con `canWithdraw` prendido.
  *
  * La usa la página `/historial` y también la landing: la vista del profesional
@@ -222,7 +222,7 @@ export function showHistory({
   explorer,
   loading,
   connect,
-  balanceEth,
+  balancePol,
   balanceUsd,
   canWithdraw,
 } = {}) {
@@ -237,7 +237,7 @@ export function showHistory({
   // El saldo y el permiso de retirar son la misma foto que las filas: van acá y
   // no en una función aparte sólo para el caso "sólo cambió el saldo" —para eso
   // está `setHistoryBalance`, que no toca las filas—.
-  if (balanceEth !== undefined) table.balanceEth = balanceEth;
+  if (balancePol !== undefined) table.balancePol = balancePol;
   if (balanceUsd !== undefined) table.balanceUsd = balanceUsd;
   if (canWithdraw !== undefined) table.canWithdraw = Boolean(canWithdraw);
 }
@@ -250,10 +250,10 @@ export function showHistory({
  *
  * Mismo default tolerante que `showHistory` para lo que no venga.
  */
-export function setHistoryBalance(balanceEth, balanceUsd) {
+export function setHistoryBalance(balancePol, balanceUsd) {
   const table = findIsland("whiskito-history-table");
   if (!table) return;
-  if (balanceEth !== undefined) table.balanceEth = balanceEth;
+  if (balancePol !== undefined) table.balancePol = balancePol;
   if (balanceUsd !== undefined) table.balanceUsd = balanceUsd;
 }
 

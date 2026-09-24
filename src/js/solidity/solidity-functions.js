@@ -18,9 +18,9 @@ export function readContract(functionName, args = []) {
 }
 
 /**
- * Precio ETH→USD, ya normalizado a 18 decimales.
+ * Precio POL→USD, ya normalizado a 18 decimales.
  */
-export async function readEthPrice() {
+export async function readPolPrice() {
   return Number(
     formatEther(await readContract("getConversionRate", [10n ** 18n]))
   );
@@ -41,7 +41,7 @@ const EVENT_WINDOW_BLOCKS = 5000n;
 
 /**
  * Todas las donaciones que recibió `professional`, más nuevas primero, con la
- * forma que pinta la tabla del historial (`donorShort` / `amountEth`).
+ * forma que pinta la tabla del historial (`donorShort` / `amountPol`).
  *
  * El `limit` (200 por defecto) existe para que una dirección con miles de
  * donaciones no vuelque todo en la tabla: se descartan las más viejas
@@ -121,7 +121,7 @@ export async function readDonationHistory(professional, { limit = 200 } = {}) {
   return Promise.all(
     recentEvents.map(async (event) => ({
       donorShort: shortAddress(event.args.donor),
-      amountEth: formatEther(event.args.ethAmount),
+      amountPol: formatEther(event.args.ethAmount),
       usd: Number(formatEther(event.args.usdValue)).toFixed(2),
       when: relativeTime(await timestampOf(event.blockNumber)),
       // Aditivos, para la página `/historial`: la dirección COMPLETA del
@@ -136,22 +136,22 @@ export async function readDonationHistory(professional, { limit = 200 } = {}) {
 
 /**
  * Las últimas 10 donaciones, con la forma del panel de resumen
- * (`address` / `eth`). Traduce las filas de `readDonationHistory`: la lectura de
+ * (`address` / `pol`). Traduce las filas de `readDonationHistory`: la lectura de
  * eventos y el formateo viven en un solo lugar.
  */
 export async function readDonations(professionalAddress) {
   const rows = await readDonationHistory(professionalAddress, { limit: 10 });
-  // El panel del resumen habla de `address`/`eth`: la traducción vive acá.
-  return rows.map(({ donorShort, amountEth, usd, when }) => ({
+  // El panel del resumen habla de `address`/`pol`: la traducción vive acá.
+  return rows.map(({ donorShort, amountPol, usd, when }) => ({
     address: donorShort,
-    eth: amountEth,
+    pol: amountPol,
     usd,
     when,
   }));
 }
 
 /**
- * El balance disponible de `address`, ya en ETH como texto.
+ * El balance disponible de `address`, ya en POL como texto.
  *
  * Es la ÚNICA lectura de `balances`: la usan el portfolio de la página y el saldo
  * que la tabla del historial muestra en la vista del profesional. Dos lecturas
@@ -163,11 +163,11 @@ export async function readBalance(address) {
 }
 
 export async function readPortfolio(professionalAddress) {
-  const balanceEth = await readBalance(professionalAddress);
-  const ethPrice = await readEthPrice();
+  const balancePol = await readBalance(professionalAddress);
+  const polPrice = await readPolPrice();
   return {
-    balanceEth,
-    balanceUsd: (Number(balanceEth) * ethPrice).toFixed(2),
+    balancePol,
+    balanceUsd: (Number(balancePol) * polPrice).toFixed(2),
     donations: await readDonations(professionalAddress),
   };
 }
@@ -210,7 +210,7 @@ export async function withdrawAll() {
 }
 
 /**
- * Retira `amount` ETH (no wei: se convierte acá) del balance de quien firma y
+ * Retira `amount` POL (no wei: se convierte acá) del balance de quien firma y
  * espera el recibo. Devuelve el hash.
  *
  * No recibe a quién retirarle: el contrato usa `balances[msg.sender]`, así que

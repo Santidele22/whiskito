@@ -11,7 +11,7 @@ import {
   resolveViewerRole,
 } from "../roles/viewer-role.js";
 
-import { DEMO_ETH_PRICE } from "../config/constants.js";
+import { DEMO_POL_PRICE } from "../config/constants.js";
 
 
 import {
@@ -27,7 +27,7 @@ import {
 } from "../solidity/chain.js";
 
 //CONTRATO: leer el precio y donar.
-import { fund, readEthPrice } from "../solidity/solidity-functions.js";
+import { fund, readPolPrice } from "../solidity/solidity-functions.js";
 
 // Mismo registro con guarda que `components/index.js`: `define` una sola vez.
 if (!customElements.get("whiskito-donate-card")) {
@@ -148,7 +148,7 @@ async function onAccountsChanged(accounts) {
  * repintar la cuenta; el precio, que es de la red activa, se vuelve a leer.
  */
 async function onChainChanged() {
-  await applyEthPrice();
+  await applyPolPrice();
   if (!account) return; // sin cuenta conectada no hay nada que reconectar
   try {
     const connected = await connectWallet();
@@ -255,19 +255,19 @@ async function onFundRequest(event) {
 }
 
 /**
- * El precio ETH→USD de la red ACTIVA, para la tarjeta. Si la chain no contesta
+ * El precio POL→USD de la red ACTIVA, para la tarjeta. Si la chain no contesta
  * se usa el de ejemplo, con el mismo aviso de siempre. Es una sola pieza
  * porque la usan el arranque y el cambio de red.
  */
-async function applyEthPrice() {
+async function applyPolPrice() {
   try {
-    islands.setEthPrice(await readEthPrice());
+    islands.setPolPrice(await readPolPrice());
   } catch (error) {
     console.warn(
       "Sin chain para el precio, se usa el de ejemplo:",
       error.message
     );
-    islands.setEthPrice(DEMO_ETH_PRICE);
+    islands.setPolPrice(DEMO_POL_PRICE);
   }
 }
 
@@ -297,10 +297,10 @@ async function bootstrap() {
     startReadClient();
   } catch (error) {
     // Sin cliente de lectura el precio no va a llegar: se dice, y el fallback
-    // de `applyEthPrice()` deja el de ejemplo.
+    // de `applyPolPrice()` deja el de ejemplo.
     console.warn("No se pudo crear el cliente de lectura:", error.message);
   }
-  await applyEthPrice();
+  await applyPolPrice();
 }
 
 // Sólo interesan estos pedidos: no hay navbar ni panel que escuchar. La tarjeta

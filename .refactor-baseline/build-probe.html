@@ -51,8 +51,8 @@
         const card = doc.querySelector("whiskito-donate-card");
         const panel = doc.querySelector("whiskito-panel");
         // Con la chain levantada son 2000; sin chain, el fallback de la app (3400).
-        check("B4 el precio es un número (viem bundleado resolvió)", Number.isFinite(card.ethPrice), `ethPrice=${card.ethPrice}`);
-        check("B5 el panel se llenó", panel.donations?.length >= 3 && Boolean(panel.balanceEth), `filas=${panel.donations?.length} balance=${panel.balanceEth}`);
+        check("B4 el precio es un número (viem bundleado resolvió)", Number.isFinite(card.polPrice), `polPrice=${card.polPrice}`);
+        check("B5 el panel se llenó", panel.donations?.length >= 3 && Boolean(panel.balancePol), `filas=${panel.donations?.length} balance=${panel.balancePol}`);
         const raices = [doc, ...hosts.map((h) => h.shadowRoot).filter(Boolean)];
         const cuenta = (sel, host) => (host.shadowRoot ?? host).querySelectorAll(sel).length;
         // Iconos por isla, contados en el código fuente de cada componente

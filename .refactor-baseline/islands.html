@@ -214,7 +214,7 @@
           const usd = cardRoot.querySelector("#usdEquivalent");
           const fund = cardRoot.querySelector("#fundButton");
           // El chip de 5 USD tiene que pedir 5/precio ETH: la cuenta la hace la isla.
-          const ethDe = (usd) => String(Math.ceil((usd / card.ethPrice) * 1e6) / 1e6);
+          const polDe = (usd) => String(Math.ceil((usd / card.polPrice) * 1e6) / 1e6);
           const txStatus = cardRoot.querySelector("#txStatus");
           const txText = cardRoot.querySelector("#txText");
           const hint = cardRoot.querySelector("#cardHint");
@@ -238,9 +238,9 @@
           // El precio lo lee main.js del contrato: con el MockV3Aggregator del
           // deploy local son 2000 USD. Si esto diera 3400, estaría usando el
           // valor de ejemplo (o sea: no llegó a la chain).
-          const PRECIO = card.ethPrice;
-          check("A4 el precio viene de la chain", PRECIO === 2000, `ethPrice=${PRECIO}`);
-          check("A4b el precio NO es el de ejemplo (no cayó en el fallback)", PRECIO !== 3400, `ethPrice=${PRECIO}`);
+          const PRECIO = card.polPrice;
+          check("A4 el precio viene de la chain", PRECIO === 2000, `polPrice=${PRECIO}`);
+          check("A4b el precio NO es el de ejemplo (no cayó en el fallback)", PRECIO !== 3400, `polPrice=${PRECIO}`);
 
           check("A5 main.js inyectó donaciones", panel.donations.length === 3, `len=${panel.donations.length}`);
           eq("A6 el panel pintó las 3 filas", rows().length, 3);
@@ -286,26 +286,26 @@
           eq("B8 el atributo es el estado", card.getAttribute("amount"), "0.001");
 
           chips.find((c) => c.dataset.usd === "5").click();
-          eq("B9 chip de 5 USD → ETH redondeado hacia arriba", card.amount, ethDe(5));
-          eq("B10 el input refleja el estado", input.value, ethDe(5));
+          eq("B9 chip de 5 USD → ETH redondeado hacia arriba", card.amount, polDe(5));
+          eq("B10 el input refleja el estado", input.value, polDe(5));
           check("B11 chip activo", chips.find((c) => c.dataset.usd === "5").classList.contains("is-active"));
           check("B12 sólo un chip activo", chips.filter((c) => c.classList.contains("is-active")).length === 1);
 
           chips.find((c) => c.dataset.usd === "0.5").click();
           // El piso bajó a 0.01 USD: este chip sigue siendo un monto válido (el
           // monto convertido es lo que se compara), ya no el mínimo exacto.
-          eq("B13 chip de 0.5 USD → monto convertido", card.amount, ethDe(0.5));
+          eq("B13 chip de 0.5 USD → monto convertido", card.amount, polDe(0.5));
           check("B14 con el mínimo no avisa", hint.hidden === true && fund.disabled === false);
 
           // Por debajo del piso NUEVO (0.01 USD): con el oráculo en 2000 USD el
-          // mínimo en la unidad nativa es ethDe(0.01) = 0.000005, así que el
+          // mínimo en la unidad nativa es polDe(0.01) = 0.000005, así que el
           // valor tipeado tiene que ser menor que eso (0.00001 ya NO está por
           // debajo: son 0.02 USD y la aserción dejaría de probar lo que dice).
           typeInto(input, "0.000001");
           check("B15 bajo el mínimo deshabilita", fund.disabled === true);
           check("B16 bajo el mínimo muestra el hint", hint.hidden === false);
           check("B17 el hint explica el mínimo",
-            NORM(hint.textContent) === `El mínimo es 0.01 USD ≈ ${ethDe(0.01)} POL`, NORM(hint.textContent));
+            NORM(hint.textContent) === `El mínimo es 0.01 USD ≈ ${polDe(0.01)} POL`, NORM(hint.textContent));
 
           let amountEvent = null;
           doc.addEventListener("whiskito:amount-change", (e) => { amountEvent = e.detail; });
@@ -329,7 +329,7 @@
 
           card.removeAttribute("eth-price");
           check("B23 sin precio los chips quedan inertes", chips.every((c) => c.disabled === true));
-          card.ethPrice = PRECIO; // se restaura el que se leyó de la chain
+          card.polPrice = PRECIO; // se restaura el que se leyó de la chain
           check("B24 vuelve el precio y se reactivan", chips.every((c) => !c.disabled));
 
           card.status = "pending";
@@ -413,9 +413,9 @@
           panel.donations = guardadas;
           eq("D3 vuelven las filas", rows().length, 3);
           check("D4 estado vacío oculto", empty.hidden === true);
-          panel.balanceEth = "1.5";
+          panel.balancePol = "1.5";
           eq("D5 balance reactivo", balance.textContent, "1.5");
-          panel.balanceEth = "0.0842";
+          panel.balancePol = "0.0842";
 
           // ── E. Integración end-to-end (modo demo, que es el default) ──
           // Por si el perfil de Firefox quedó con el cuaderno de una versión
@@ -751,12 +751,12 @@
           // panel tiene que estar mostrando ESO, leído del contrato y del evento.
           const saldoReal = await saldoOnChain(DUEÑO);
           check("H1h2 el panel muestra el mismo saldo que dice la chain",
-            panel.balanceEth === saldoReal, `panel=${panel.balanceEth} chain=${saldoReal}`);
+            panel.balancePol === saldoReal, `panel=${panel.balancePol} chain=${saldoReal}`);
           // La lista crece: cada corrida dona de verdad y los eventos de la
           // chain quedan para siempre (el retiro devuelve el ETH, no el
           // historial). Así que se verifica la fila MÁS NUEVA, no el total.
           check("H1h3 y la fila más nueva es la donación que acaba de entrar",
-            panel.donations.length >= 1 && panel.donations[0].eth === "0.01" &&
+            panel.donations.length >= 1 && panel.donations[0].pol === "0.01" &&
               panel.donations[0].usd === "20.00" &&
               panel.donations[0].address.toLowerCase() === "0xf39f...2266", // la chain la devuelve con checksum
             `filas=${panel.donations.length} ${JSON.stringify(panel.donations[0])}`);
@@ -773,8 +773,8 @@
             `tx=${firmas.length} to=${firmas[0]?.params?.[0]?.to}`);
           check("H1l y llama a withdrawAll()", firmas[0]?.params?.[0]?.data === "0x853828b6",
             `data=${firmas[0]?.params?.[0]?.data}`);
-          check("H1m2 y el saldo de la chain volvió a cero", panel.balanceEth === "0",
-            `balance=${panel.balanceEth} POL`);
+          check("H1m2 y el saldo de la chain volvió a cero", panel.balancePol === "0",
+            `balance=${panel.balancePol} POL`);
           check("H1m la UI reporta el retiro", panel.withdrawStatus === "success",
             `status=${panel.withdrawStatus} msg="${panel.withdrawMessage}" · métodos=${[...new Set(pedidos.map((p) => p.method))].join(",")} · recibos=${pedidos.filter((p) => p.method === "eth_getTransactionReceipt").length}`);
 
@@ -785,8 +785,8 @@
           const firmasDeRetiro = () => pedidos.filter(
             (p) => p.method === "eth_sendTransaction" && p.params?.[0]?.data === "0x853828b6").length;
           check("A4-1 tras el retiro el panel quedó en 0 y el botón deshabilitado",
-            panel.balanceEth === "0" && withdrawButton.disabled === true,
-            `balance=${panel.balanceEth} disabled=${withdrawButton.disabled}`);
+            panel.balancePol === "0" && withdrawButton.disabled === true,
+            `balance=${panel.balancePol} disabled=${withdrawButton.disabled}`);
           // (a) El click tal como queda la UI: con el botón deshabilitado no hay
           //     nada que firmar. Se pone el estado en "idle" para poder atribuirle
           //     al click lo que pase después (si no, un "success" viejo se
@@ -804,7 +804,7 @@
           //     refrescar) pero la chain no tiene nada para msg.sender. Ahora el
           //     click SÍ recorre el camino de escritura (simular → firmar →
           //     confirmar) y el contrato revierte.
-          panel.balanceEth = "0.01";
+          panel.balancePol = "0.01";
           await sleep(200);
           check("A4-3 con el panel mostrando saldo el botón vuelve a estar clickeable",
             withdrawButton.disabled === false, `disabled=${withdrawButton.disabled}`);
@@ -819,7 +819,7 @@
           check("A4-6 el intento revirtió en la simulación: no hubo firma nueva ni se movió el saldo",
             firmasDeRetiro() === firmasAntes && saldoTrasSegundo === "0",
             `firmas ${firmasAntes}→${firmasDeRetiro()} chain=${saldoTrasSegundo}`);
-          panel.balanceEth = "0"; // el panel vuelve al estado que dejó el retiro real
+          panel.balancePol = "0"; // el panel vuelve al estado que dejó el retiro real
           await sleep(200);
 
           // ── W. RETIRO PARCIAL (panel del backstage) ───────────────────
@@ -834,7 +834,7 @@
 
           // Los dos helpers que faltaban: el monto en wei como texto decimal
           // (independiente del `formatEther` de la app) y el techo de la firma.
-          const weiAeth = (wei) => {
+          const weiAPol = (wei) => {
             const entero = wei / 10n ** 18n;
             const dec = (wei % 10n ** 18n).toString().padStart(18, "0").replace(/0+$/, "");
             return dec ? `${entero}.${dec}` : `${entero}`;
@@ -845,7 +845,7 @@
           // construido así puede terminar siendo un wei MENOS y la validación
           // —correctamente— lo aceptaría. Se parte el texto en entero y
           // decimales y se arma el BigInt a mano.
-          const weiDeEth = (texto) => {
+          const weiDePol = (texto) => {
             const [entero, decimales = ""] = String(texto).trim().split(".");
             const frac = (decimales + "0".repeat(18)).slice(0, 18);
             return BigInt(entero || "0") * 10n ** 18n + BigInt(frac || "0");
@@ -929,8 +929,8 @@
           await sleep(300);
           check("W3 con saldo real, el botón de retirar todo queda habilitado",
             panelWithdrawButton.hidden === false && panelWithdrawButton.disabled === false &&
-              panel.balanceEth === saldoAntes && panel.balanceEth !== "0",
-            `chain=${saldoAntes} panel=${panel.balanceEth} hidden=${panelWithdrawButton.hidden} disabled=${panelWithdrawButton.disabled}`);
+              panel.balancePol === saldoAntes && panel.balancePol !== "0",
+            `chain=${saldoAntes} panel=${panel.balancePol} hidden=${panelWithdrawButton.hidden} disabled=${panelWithdrawButton.disabled}`);
 
           // 1. Las dos vías existen, son VISIBLES y alcanzables con el mouse.
           //    El recibo está rotado 1.2deg: el hit test es la única prueba de
@@ -991,7 +991,7 @@
             `disabled=${panelConfirm.disabled} error="${NORM(panelPartError.textContent)}"`);
 
           // Más que el saldo: se cae el entero y también un pelo por encima.
-          const demasiado = weiAeth((BigInt(Math.round(Number(saldoAntes) * 1e9)) + 1n) * 10n ** 9n);
+          const demasiado = weiAPol((BigInt(Math.round(Number(saldoAntes) * 1e9)) + 1n) * 10n ** 9n);
           await escribirMonto(panelAmount, demasiado);
           check("W10 más que el saldo queda deshabilitado y lo dice",
             panelConfirm.disabled === true &&
@@ -1066,7 +1066,7 @@
 
           // 5. El efecto on-chain es EXACTO: baja ese monto, ni más ni menos.
           const saldoDespues = await saldoOnChain(DUEÑO);
-          const esperadoDespues = weiAeth(BigInt(Math.round(Number(saldoAntesParcial) * 1e9)) * 10n ** 9n - MONTO_WEI);
+          const esperadoDespues = weiAPol(BigInt(Math.round(Number(saldoAntesParcial) * 1e9)) * 10n ** 9n - MONTO_WEI);
           check("W18 el saldo de la chain bajó EXACTAMENTE el monto retirado",
             saldoDespues === esperadoDespues && saldoDespues !== saldoAntesParcial,
             `chain ${saldoAntesParcial}→${saldoDespues} esperado=${esperadoDespues}`);
@@ -1074,8 +1074,8 @@
             Number(saldoDespues) > 0,
             `chain=${saldoDespues}`);
           check("W20 la UI del panel muestra el saldo nuevo, leído de la chain",
-            panel.balanceEth === saldoDespues,
-            `panel=${panel.balanceEth} chain=${saldoDespues}`);
+            panel.balancePol === saldoDespues,
+            `panel=${panel.balancePol} chain=${saldoDespues}`);
 
           // 7. El veredicto queda VISIBLE en la isla que lo disparó.
           check("W21 el veredicto «¡Retirado!» queda visible en el panel",
@@ -1148,13 +1148,13 @@
             `body=${win.getComputedStyle(doc.body).backgroundColor} html=${win.getComputedStyle(doc.documentElement).backgroundColor} (--ink = #1c1512)`);
 
           check("V2 autorizada, la tabla muestra el saldo disponible de la chain (con los dos botones)",
-            tablaViva().canWithdraw === true && tablaViva().balanceEth === saldoV && Number(saldoV) > 0 &&
+            tablaViva().canWithdraw === true && tablaViva().balancePol === saldoV && Number(saldoV) > 0 &&
               tablaRootV.querySelector(".hist-withdraw").hidden === false &&
               tablaBotonTodo.hidden === false && tablaBotonParte.hidden === false &&
               /^\d+(\.\d+)?$/.test(NORM(tablaBalancePintado.textContent)) &&
               NORM(tablaBalancePintado.textContent) === saldoV &&
               /^≈ \$[\d.]+ USD$/.test(NORM(tablaRootV.querySelector("#histBalanceUsd").textContent)),
-            `chain=${saldoV} tabla=${tablaViva().balanceEth} pintado="${NORM(tablaBalancePintado.textContent)}" usd="${NORM(tablaRootV.querySelector("#histBalanceUsd")?.textContent)}" hidden=${tablaBotonTodo.hidden}/${tablaBotonParte.hidden}`);
+            `chain=${saldoV} tabla=${tablaViva().balancePol} pintado="${NORM(tablaBalancePintado.textContent)}" usd="${NORM(tablaRootV.querySelector("#histBalanceUsd")?.textContent)}" hidden=${tablaBotonTodo.hidden}/${tablaBotonParte.hidden}`);
 
           // V3. Los botones son alcanzables DE VERDAD. La tabla está al final de
           //     una página larga: se scrollea a la tarjeta y se comprueba con
@@ -1226,10 +1226,10 @@
           tablaStatus = tablaRootV.querySelector("#histWithdrawStatus");
           saldoV = await saldoOnChain(DUEÑO);
           check("V7 tras preparar saldo, la tabla lo muestra (la lectura nueva y el permiso siguen vivos)",
-            tablaV.canWithdraw === true && tablaV.balanceEth === saldoV && Number(saldoV) > 0 &&
+            tablaV.canWithdraw === true && tablaV.balancePol === saldoV && Number(saldoV) > 0 &&
               NORM(tablaBalancePintado.textContent) === saldoV &&
               /^≈ \$[\d.]+ USD$/.test(NORM(tablaRootV.querySelector("#histBalanceUsd").textContent)),
-            `chain=${saldoV} tabla=${tablaV.balanceEth} pintado="${NORM(tablaBalancePintado.textContent)}" canWithdraw=${tablaV.canWithdraw}`);
+            `chain=${saldoV} tabla=${tablaV.balancePol} pintado="${NORM(tablaBalancePintado.textContent)}" canWithdraw=${tablaV.canWithdraw}`);
 
           // V8. "Retirar una parte" despliega la fila con el input vacío y el
           //     placeholder en el saldo disponible.
@@ -1265,7 +1265,7 @@
           const firmasAntesValidarV = firmasParcialV();
           await escribirMonto(tablaMonto, "0");
           const errorCeroV = NORM(tablaError.textContent);
-          const demasiadoV = weiAeth(weiDeEth(saldoV) + 1n);
+          const demasiadoV = weiAPol(weiDePol(saldoV) + 1n);
           await escribirMonto(tablaMonto, demasiadoV);
           const errorDemasiadoV = NORM(tablaError.textContent);
           check("V10 el monto 0 y uno mayor al saldo quedan deshabilitados y avisan",
@@ -1295,7 +1295,7 @@
           await sleep(3500);
           const dataParcialV = String(firmasDe("0x2e1a7d4d").at(-1)?.params?.[0]?.data ?? "");
           const saldoDespuesParcialV = await saldoOnChain(DUEÑO);
-          const esperadoParcialV = weiAeth(weiDeEth(saldoAntesParcialV) - MONTO_WEI);
+          const esperadoParcialV = weiAPol(weiDePol(saldoAntesParcialV) - MONTO_WEI);
           check("V12 el retiro parcial firma UNA vez withdraw(uint256) con el monto en wei (y no withdrawAll)",
             firmasParcialV() === firmasParcialAntesV + 1 && dataParcialV.startsWith("0x2e1a7d4d") &&
               paramDe(dataParcialV) === MONTO_WEI && firmasV() === firmasTodoAntesV,
@@ -1309,9 +1309,9 @@
           check("V15 y el resto sigue disponible (no se vació la cuenta)",
             Number(saldoDespuesParcialV) > 0, `chain=${saldoDespuesParcialV}`);
           check("V16 la tabla quedó con el saldo fresco de la chain, no con el de antes",
-            tablaViva().balanceEth === saldoDespuesParcialV && tablaViva().balanceEth !== saldoAntesParcialV &&
+            tablaViva().balancePol === saldoDespuesParcialV && tablaViva().balancePol !== saldoAntesParcialV &&
               NORM(tablaBalancePintado.textContent) === saldoDespuesParcialV,
-            `tabla=${tablaViva().balanceEth} pintado="${NORM(tablaBalancePintado.textContent)}" chain=${saldoDespuesParcialV} (antes ${saldoAntesParcialV})`);
+            `tabla=${tablaViva().balancePol} pintado="${NORM(tablaBalancePintado.textContent)}" chain=${saldoDespuesParcialV} (antes ${saldoAntesParcialV})`);
 
           // V17. El veredicto queda VISIBLE en la isla que lo disparó, y el mismo
           //      texto llegó a la otra isla que retira (una sola verdad).
@@ -1365,7 +1365,7 @@
             }),
           }).then((r) => r.json());
           await sleep(700);
-          panel.balanceEth = "0";
+          panel.balancePol = "0";
           await sleep(200);
 
           check("H1f el botón de cerrar lo cierra", sharePanel?.hidden === true, `hidden=${sharePanel?.hidden}`);
@@ -1546,8 +1546,8 @@
           check("R2 el panel sabe de quién es",
             (panel2.owner ?? "").toLowerCase() === OTRO_DUEÑO, `owner=${panel2.owner}`);
           check("R3 sin wallet igual muestra el saldo público del dueño (el de la chain)",
-            panel2.balanceEth === (await saldoOnChain(OTRO_DUEÑO)),
-            `panel=${panel2.balanceEth} chain=${await saldoOnChain(OTRO_DUEÑO)}`);
+            panel2.balancePol === (await saldoOnChain(OTRO_DUEÑO)),
+            `panel=${panel2.balancePol} chain=${await saldoOnChain(OTRO_DUEÑO)}`);
           check("R4 y lo dice en pantalla",
             panelRoot2.querySelector("#panelOwner").hidden === false,
             `hidden=${panelRoot2.querySelector("#panelOwner").hidden}`);
@@ -1580,7 +1580,7 @@
           check("R6 el donante no tiene botón de retirar",
             panelRoot2.querySelector("#withdrawButton").hidden === true,
             `hidden=${panelRoot2.querySelector("#withdrawButton").hidden}`);
-          check("R7 el donante sí puede donar", card2.ethPrice > 0, `precio=${card2.ethPrice}`);
+          check("R7 el donante sí puede donar", card2.polPrice > 0, `precio=${card2.polPrice}`);
           // Contracara del bloque N: con `?demo=0` la tarjeta NO avisa de demo,
           // porque la donación se firma de verdad.
           check("R7b con ?demo=0 la tarjeta no lleva el aviso de demo",
@@ -1603,7 +1603,7 @@
 
           // Donar: el calldata tiene que llevar la dirección del DUEÑO, y salir
           // de la wallet del DONANTE. Esa es la separación, al nivel del byte.
-          card2.ethPrice = 2000;
+          card2.polPrice = 2000;
           const input2 = card2.shadowRoot.querySelector("#ehtAmount");
           input2.value = "0.001";
           input2.dispatchEvent(new win2.Event("input", { bubbles: true }));
@@ -1711,7 +1711,7 @@
               doc3.querySelector("whiskito-history-table") === null,
             `saludo=${Boolean(doc3.querySelector("whiskito-pro-greeting"))} tabla=${Boolean(doc3.querySelector("whiskito-history-table"))}`);
 
-          card3.ethPrice = 2000;
+          card3.polPrice = 2000;
           const input3 = cardRoot3.querySelector("#ehtAmount");
           input3.value = "0.002";
           input3.dispatchEvent(new win3.Event("input", { bubbles: true }));
@@ -1782,7 +1782,7 @@
           };
           navRoot4.querySelector("#connectButton").click();
           await sleep(1500);
-          card4.ethPrice = 2000;
+          card4.polPrice = 2000;
           const input4 = cardRoot4.querySelector("#ehtAmount");
           input4.value = "0.002";
           input4.dispatchEvent(new win4.Event("input", { bubbles: true }));

@@ -59,12 +59,12 @@
           `panel scrolea adentro: ${panel.scrollHeight > panel.clientHeight} (scroll=${panel.scrollHeight} client=${panel.clientHeight})`,
           `shareClose visible: ${Boolean(cierre && cierre.width > 0 && cierre.height > 0)} · dentro del panel: ${Boolean(dentro)}`,
           "— datos —",
-          `precio de la tarjeta: ${doc.querySelector("whiskito-donate-card").ethPrice}` +
-            (doc.querySelector("whiskito-donate-card").ethPrice === 3400
+          `precio de la tarjeta: ${doc.querySelector("whiskito-donate-card").polPrice}` +
+            (doc.querySelector("whiskito-donate-card").polPrice === 3400
               ? " (valor de ejemplo: la chain no respondió)"
               : " (leído de la chain)"),
           `filas del panel: ${doc.querySelector("whiskito-panel").shadowRoot.querySelectorAll("#donationsList .pd-item").length}` +
-            ` · balance: ${doc.querySelector("whiskito-panel").balanceEth} ETH`,
+            ` · balance: ${doc.querySelector("whiskito-panel").balancePol} POL`,
           `islas con shadow root: ${[...doc.querySelectorAll("*")].filter((e) => e.tagName.includes("-") && e.shadowRoot).length}` +
             ` · navbar: ${doc.querySelector("whiskito-navbar").connectionState}`,
         ];

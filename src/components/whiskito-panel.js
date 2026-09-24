@@ -539,7 +539,7 @@ export class WhiskitoPanel extends WhiskitoElement {
 
           <p class="r-balance-label">Balance disponible</p>
           <p class="receipt-balance">
-            <span id="balanceDisplay" data-text="balanceEth">0.0842</span>
+            <span id="balanceDisplay" data-text="balancePol">0.0842</span>
             <span class="balance-unit">POL</span>
           </p>
           <p class="r-usd" id="balanceUsd" data-text="balanceUsd">≈ $269.44 USD</p>
@@ -627,7 +627,7 @@ export class WhiskitoPanel extends WhiskitoElement {
             <div class="r-item">
               <code data-field="address"></code>
               <span class="amt"
-                >+<span data-field="eth"></span> POL
+                >+<span data-field="pol"></span> POL
                 <small>≈ $<span data-field="usd"></span></small></span
               >
               <span class="when" data-field="when"></span>
@@ -642,14 +642,14 @@ export class WhiskitoPanel extends WhiskitoElement {
   #wired = false;
   /** La fila de retiro parcial está desplegada. */
   #partOpen = false;
-  /** Lo escrito en el input, en ETH como texto (vacío = todavía nada). */
+  /** Lo escrito en el input, en POL como texto (vacío = todavía nada). */
   #amountText = "";
 
-  /** Balance en ETH, como texto. */
-  get balanceEth() {
+  /** Balance en POL, como texto. */
+  get balancePol() {
     return this.getAttribute("balance-eth") ?? "0";
   }
-  set balanceEth(v) {
+  set balancePol(v) {
     this.setAttribute("balance-eth", String(v));
   }
 
@@ -693,7 +693,7 @@ export class WhiskitoPanel extends WhiskitoElement {
     this.setAttribute("withdraw-message", v);
   }
 
-  /** Donaciones recibidas: array de `{ address, eth, usd, when }`. */
+  /** Donaciones recibidas: array de `{ address, pol, usd, when }`. */
   get donations() {
     return this.#donations;
   }
@@ -707,7 +707,7 @@ export class WhiskitoPanel extends WhiskitoElement {
     return this.owner ? `${this.owner.slice(0, 6)}...${this.owner.slice(-4)}` : "";
   }
 
-  /** El monto escrito, como número en ETH. `NaN` si no es un número. */
+  /** El monto escrito, como número en POL. `NaN` si no es un número. */
   get #amountValue() {
     const text = this.#amountText.trim();
     if (text === "") return NaN;
@@ -723,7 +723,7 @@ export class WhiskitoPanel extends WhiskitoElement {
   get #amountError() {
     const amount = this.#amountValue;
     if (!(amount > 0)) return "El monto tiene que ser mayor que 0";
-    if (amount > Number(this.balanceEth)) {
+    if (amount > Number(this.balancePol)) {
       return "No podés retirar más de lo que tenés";
     }
     return "";
@@ -732,13 +732,13 @@ export class WhiskitoPanel extends WhiskitoElement {
   /** Valores a pintar (hook de pintado de la base). */
   get state() {
     const isOwnerViewer = isOwner(this.viewer, this.owner);
-    const hasBalance = Number(this.balanceEth) > 0;
+    const hasBalance = Number(this.balancePol) > 0;
     const { withdrawStatus, withdrawMessage } = this;
     const ownerShort = this.#ownerShort;
     const partOpen = this.#partOpen;
     const amountError = this.#amountError;
     return {
-      balanceEth: this.balanceEth,
+      balancePol: this.balancePol,
       balanceUsd: `≈ $${this.balanceUsd} USD`,
       hasDonations: this.donations.length > 0,
       isOwner: isOwnerViewer,
@@ -771,7 +771,7 @@ export class WhiskitoPanel extends WhiskitoElement {
     // El placeholder es el saldo disponible: el input nace vacío porque el monto
     // lo escribe la persona, no la isla.
     const input = this.root.querySelector("#withdrawAmount");
-    if (input) input.placeholder = this.balanceEth;
+    if (input) input.placeholder = this.balancePol;
 
     const list = this.root.querySelector("#donationsList");
     const itemTemplate = this.root.querySelector("template[data-item]");
@@ -839,7 +839,7 @@ export class WhiskitoPanel extends WhiskitoElement {
       .querySelector("#withdrawConfirmButton")
       ?.addEventListener("click", () => {
         if (this.state.withdrawConfirmDisabled) return;
-        // El monto va como texto decimal en ETH: `withdraw()` lo convierte.
+        // El monto va como texto decimal en POL: `withdraw()` lo convierte.
         this.emit("whiskito:withdraw-request", { amount: this.#amountText });
       });
 

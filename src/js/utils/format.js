@@ -16,8 +16,8 @@ function roundTo(value, decimals) {
 }
 
 /**
- * Formatea un monto nativo (ETH/POL) con `decimals` decimales, sin ceros de
- * cola: `formatEth(0.0842)` → `"0.0842"`.
+ * Formatea un monto nativo (POL) con `decimals` decimales, sin ceros de
+ * cola: `formatPol(0.0842)` → `"0.0842"`.
  *
  * El default es 4 decimales (la lectura de un saldo); el resumen de la tabla
  * del historial usa 6, el mismo criterio con el que suma.
@@ -26,7 +26,7 @@ function roundTo(value, decimals) {
  * @param {number} [decimals]
  * @returns {string}
  */
-export function formatEth(value, decimals = 4) {
+export function formatPol(value, decimals = 4) {
   return String(roundTo(Number(value) || 0, decimals));
 }
 

@@ -13,7 +13,7 @@ import {
   resolveViewerRole,
 } from "../roles/viewer-role.js";
 
-import { DEMO_ETH_PRICE, PREVIEW } from "../config/constants.js";
+import { DEMO_POL_PRICE, PREVIEW } from "../config/constants.js";
 
 import { DEMO } from "../config/demo-mode.js";
 
@@ -35,7 +35,7 @@ import {
   fund,
   readBalance,
   readDonationHistory,
-  readEthPrice,
+  readPolPrice,
   readPortfolio,
   withdraw,
   withdrawAll,
@@ -183,17 +183,17 @@ async function loadProHistory(address) {
  */
 async function refreshProBalance(address = account) {
   if (!address) return;
-  const balanceEth = await readBalance(address);
+  const balancePol = await readBalance(address);
   let balanceUsd = "0.00";
   try {
-    balanceUsd = (Number(balanceEth) * (await readEthPrice())).toFixed(2);
+    balanceUsd = (Number(balancePol) * (await readPolPrice())).toFixed(2);
   } catch (error) {
     console.warn(
       "Sin precio para el equivalente en dólares:",
       error?.message ?? error
     );
   }
-  islands.setHistoryBalance(balanceEth, balanceUsd);
+  islands.setHistoryBalance(balancePol, balanceUsd);
 }
 
 /**
@@ -314,7 +314,7 @@ async function onAccountsChanged(accounts) {
  * "conectada" contra otra red: se dice y no hay quién firme.
  */
 async function onChainChanged() {
-  await applyEthPrice();
+  await applyPolPrice();
   if (!account) {
     // Sin cuenta conectada no hay firma que proteger: la wallet no manda, sólo
     // cambió la red de la página, así que alcanza con releer su panel.
@@ -357,7 +357,7 @@ async function onDisconnectRequest() {
  * equivocara, el contrato revierte igual (`balances[msg.sender]`).
  *
  * El pedido llega con `detail.amount`:
- *   - un string decimal en ETH → retiro PARCIAL (`withdraw` lo convierte);
+ *   - un string decimal en POL → retiro PARCIAL (`withdraw` lo convierte);
  *   - `null` → retiro TOTAL (`withdrawAll`).
  * A `withdraw`/`withdrawAll` nunca se les pasa una dirección: el contrato usa
  * `balances[msg.sender]`, o sea la cuenta que firma.
@@ -431,19 +431,19 @@ async function onFundRequest(event) {
 }
 
 /**
- * El precio ETH→USD de la red ACTIVA, para la tarjeta de donación. Si la chain
+ * El precio POL→USD de la red ACTIVA, para la tarjeta de donación. Si la chain
  * no contesta se usa el de ejemplo, con el mismo aviso de siempre. Es una sola
  * pieza porque la usan el arranque y el cambio de red.
  */
-async function applyEthPrice() {
+async function applyPolPrice() {
   try {
-    islands.setEthPrice(await readEthPrice());
+    islands.setPolPrice(await readPolPrice());
   } catch (error) {
     console.warn(
       "Sin chain para el precio, se usa el de ejemplo:",
       error.message
     );
-    islands.setEthPrice(DEMO_ETH_PRICE);
+    islands.setPolPrice(DEMO_POL_PRICE);
   }
 }
 
@@ -466,10 +466,10 @@ async function bootstrap() {
     startReadClient();
   } catch (error) {
     // Sin cliente de lectura el precio no va a llegar: se dice, y el fallback
-    // de `applyEthPrice()` deja el de ejemplo.
+    // de `applyPolPrice()` deja el de ejemplo.
     console.warn("No se pudo crear el cliente de lectura:", error.message);
   }
-  await applyEthPrice();
+  await applyPolPrice();
   // El panel: si la página tiene dueño (por `?u=`), sus datos públicos; si no,
   // la vista previa de la landing.
   try {

@@ -1,7 +1,7 @@
 import { WhiskitoElement } from "./base-element.js";
 // Los formateadores de monto YA existen (los comparten el panel y esta tabla): se
 // usan, no se reescriben. Y la dirección acortada también vive ahí.
-import { formatEth, formatUsd, shortAddress } from "../js/utils/format.js";
+import { formatPol, formatUsd, shortAddress } from "../js/utils/format.js";
 
 /** Texto por defecto de la retirada, según su estado (los mismos del panel). */
 const WITHDRAW_LABELS = {
@@ -35,7 +35,7 @@ const WITHDRAW_LABELS = {
  *             mismo evento que emite la tarjeta de donación); quien conecta es
  *             el flujo. Apagado, el botón no se dibuja: una página con
  *             dirección no tiene nada que ofrecer.
- *   balanceEth / balanceUsd  el saldo DISPONIBLE del dueño (POL y su
+ *   balancePol / balanceUsd  el saldo DISPONIBLE del dueño (POL y su
  *             equivalente en dólares), el mismo dato y el mismo formato que el
  *             panel. Sólo se pinta con `canWithdraw`: es un dato de operación,
  *             no de historial.
@@ -50,7 +50,7 @@ const WITHDRAW_LABELS = {
  *   withdrawStatus / withdrawMessage  el veredicto de la retirada, con los
  *             mismos nombres y los mismos textos por defecto que el panel: una
  *             sola verdad para las dos islas que retiran.
- *   rows      array de `{ donorShort, amountEth, usd, when, donor, txHash,
+ *   rows      array de `{ donorShort, amountPol, usd, when, donor, txHash,
  *             blockNumber }`. NO es atributo: se guarda en un campo privado y el
  *             `set` repinta.
  *
@@ -70,7 +70,7 @@ const WITHDRAW_LABELS = {
  * no da `0.3`). Se redondean los totales —no las filas, que se muestran tal cual
  * vinieron— a los decimales con los que se leen: 6 para POL y 2 para USD.
  */
-const TOTAL_ETH_DECIMALS = 6;
+const TOTAL_POL_DECIMALS = 6;
 const TOTAL_USD_DECIMALS = 2;
 
 /** Redondea al número de decimales pedido, sin el polvo del binario. */
@@ -80,9 +80,9 @@ function roundTo(value, decimals) {
 }
 
 /** Suma los montos en POL de las filas, redondeada a 6 decimales. */
-export function sumEth(rows) {
-  const total = rows.reduce((sum, row) => sum + (Number(row.amountEth) || 0), 0);
-  return roundTo(total, TOTAL_ETH_DECIMALS);
+export function sumPol(rows) {
+  const total = rows.reduce((sum, row) => sum + (Number(row.amountPol) || 0), 0);
+  return roundTo(total, TOTAL_POL_DECIMALS);
 }
 
 /** Suma los montos en USD de las filas, redondeada a 2 decimales. */
@@ -96,13 +96,13 @@ export function sumUsd(rows) {
  * Sin filas devuelve `""` (no hay nada que resumir). Función pura: los mismos
  * formateadores que el resumen del panel.
  *
- * @param {Array<{amountEth: string|number, usd: string|number}>} rows
+ * @param {Array<{amountPol: string|number, usd: string|number}>} rows
  * @returns {string}
  */
 export function buildHistorySummary(rows) {
   if (rows.length === 0) return "";
   const rondas = rows.length === 1 ? "1 ronda" : `${rows.length} rondas`;
-  return `${rondas} · ${formatEth(sumEth(rows))} POL · ≈ $${formatUsd(
+  return `${rondas} · ${formatPol(sumPol(rows))} POL · ≈ $${formatUsd(
     sumUsd(rows)
   )} USD`;
 }
@@ -611,7 +611,7 @@ export class WhiskitoHistoryTable extends WhiskitoElement {
         <p class="hist-balance-label">Balance disponible</p>
         <p class="hist-balance">
           <span class="hist-balance-value"
-            ><span id="histBalance" data-text="balanceEth">0</span>
+            ><span id="histBalance" data-text="balancePol">0</span>
             <span class="hist-balance-unit">POL</span></span
           >
         </p>
@@ -702,7 +702,7 @@ export class WhiskitoHistoryTable extends WhiskitoElement {
         <td class="hist-donor">
           <code data-field="donorShort"></code>
         </td>
-        <td class="hist-amt hist-num" data-field="amountEth"></td>
+        <td class="hist-amt hist-num" data-field="amountPol"></td>
         <td class="hist-usd hist-num" data-field="usd"></td>
         <td class="hist-tx-cell">
           <a
@@ -785,10 +785,10 @@ export class WhiskitoHistoryTable extends WhiskitoElement {
   }
 
   /** Balance disponible, como texto en POL. El mismo default que el panel. */
-  get balanceEth() {
+  get balancePol() {
     return this.getAttribute("balance-eth") ?? "0";
   }
-  set balanceEth(v) {
+  set balancePol(v) {
     this.setAttribute("balance-eth", String(v ?? "0"));
   }
 
@@ -834,7 +834,7 @@ export class WhiskitoHistoryTable extends WhiskitoElement {
   }
 
   /**
-   * Filas del historial: array de `{ donorShort, amountEth, usd, when, donor,
+   * Filas del historial: array de `{ donorShort, amountPol, usd, when, donor,
    * txHash, blockNumber }`. No es atributo, así que el `set` repinta a mano,
    * igual que `donations` en el panel. Sin setear arranca vacío: la isla no
    * inventa datos.
@@ -880,7 +880,7 @@ export class WhiskitoHistoryTable extends WhiskitoElement {
   get #amountError() {
     const amount = this.#amountValue;
     if (!(amount > 0)) return "El monto tiene que ser mayor que 0";
-    if (amount > Number(this.balanceEth)) {
+    if (amount > Number(this.balancePol)) {
       return "No podés retirar más de lo que tenés";
     }
     return "";
@@ -904,7 +904,7 @@ export class WhiskitoHistoryTable extends WhiskitoElement {
     // pueda pedir, así que los botones quedan apagados (nunca escondidos: que el
     // dueño VEA que no tiene nada es información, no ruido).
     const canWithdraw = this.canWithdraw;
-    const hasBalance = Number(this.balanceEth) > 0;
+    const hasBalance = Number(this.balancePol) > 0;
     const { withdrawStatus, withdrawMessage } = this;
     const partOpen = this.#partOpen;
     const amountError = this.#amountError;
@@ -932,7 +932,7 @@ export class WhiskitoHistoryTable extends WhiskitoElement {
       connectHidden: !this.connect,
       // ---- Retiro (todo apagado sin `canWithdraw`) ----
       withdrawHidden: !canWithdraw,
-      balanceEth: formatEth(this.balanceEth),
+      balancePol: formatPol(this.balancePol),
       balanceUsd: `≈ $${formatUsd(this.balanceUsd)} USD`,
       withdrawDisabled: !hasBalance,
       withdrawStatusHidden: withdrawStatus === "idle",
@@ -956,7 +956,7 @@ export class WhiskitoHistoryTable extends WhiskitoElement {
     // El placeholder del monto es el saldo disponible: el input nace vacío
     // porque el monto lo escribe la persona, no la isla (igual que el panel).
     const input = this.root.querySelector("#histWithdrawAmount");
-    if (input) input.placeholder = this.balanceEth;
+    if (input) input.placeholder = this.balancePol;
 
     const body = this.root.querySelector("#histBody");
     const rowTemplate = this.root.querySelector("template[data-row]");
@@ -967,7 +967,7 @@ export class WhiskitoHistoryTable extends WhiskitoElement {
       const node = rowTemplate.content.firstElementChild.cloneNode(true);
       const when = node.querySelector('[data-field="when"]');
       const donor = node.querySelector('[data-field="donorShort"]');
-      const amount = node.querySelector('[data-field="amountEth"]');
+      const amount = node.querySelector('[data-field="amountPol"]');
       const usd = node.querySelector('[data-field="usd"]');
       const tx = node.querySelector('[data-field="tx"]');
 
@@ -980,7 +980,7 @@ export class WhiskitoHistoryTable extends WhiskitoElement {
       }
       // El monto lleva el signo y la unidad; el equivalente en dólares sólo si
       // vino (el `usd` es un adorno del evento).
-      if (amount) amount.textContent = `+${row.amountEth ?? ""} POL`;
+      if (amount) amount.textContent = `+${row.amountPol ?? ""} POL`;
       if (usd) {
         usd.textContent =
           row.usd === undefined || row.usd === null || row.usd === ""

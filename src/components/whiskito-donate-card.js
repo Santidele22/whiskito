@@ -247,7 +247,7 @@ export class WhiskitoDonateCard extends WhiskitoElement {
       transform: translate(-1px, -1px);
     }
 
-    /* Sin precio ETH/USD no hay conversión posible: los chips quedan inertes.
+    /* Sin precio POL/USD no hay conversión posible: los chips quedan inertes.
        El sistema no define el estado deshabilitado: se arma con el look del
        poster (vuelve al papel y pierde el relieve). */
     .chip:disabled {
@@ -556,10 +556,10 @@ export class WhiskitoDonateCard extends WhiskitoElement {
     this.setAttribute("amount", String(v));
   }
 
-  get ethPrice() {
+  get polPrice() {
     return Number(this.getAttribute("eth-price") || 0);
   }
-  set ethPrice(v) {
+  set polPrice(v) {
     this.setAttribute("eth-price", String(v));
   }
 
@@ -645,7 +645,7 @@ export class WhiskitoDonateCard extends WhiskitoElement {
 
   /** Derivada: no es atributo propio, se calcula de amount × eth-price. */
   get usd() {
-    return (Number(this.amount) || 0) * this.ethPrice;
+    return (Number(this.amount) || 0) * this.polPrice;
   }
 
   /** Alias legible de `canDonate` para adentro del componente. */
@@ -654,16 +654,16 @@ export class WhiskitoDonateCard extends WhiskitoElement {
   }
 
   get state() {
-    const eth = Number(this.amount) || 0;
-    const price = this.ethPrice;
+    const pol = Number(this.amount) || 0;
+    const price = this.polPrice;
     const minUsd = this.minUsd;
     const usd = this.usd;
     const status = this.status;
 
     const hasPrice = price > 0;
-    const belowMin = hasPrice && eth > 0 && usd < minUsd;
-    const minEth = hasPrice ? Math.ceil((minUsd / price) * 1e6) / 1e6 : 0;
-    const canFund = hasPrice && eth > 0 && usd >= minUsd;
+    const belowMin = hasPrice && pol > 0 && usd < minUsd;
+    const minPol = hasPrice ? Math.ceil((minUsd / price) * 1e6) / 1e6 : 0;
+    const canFund = hasPrice && pol > 0 && usd >= minUsd;
     const isBusy = status === "pending";
     // El bloqueo por rol es de la PÁGINA, no del monto: el dueño no se dona a sí
     // mismo, y eso se dice con el mismo texto que la landing.
@@ -680,7 +680,7 @@ export class WhiskitoDonateCard extends WhiskitoElement {
       hintText: blockedByRole
         ? SELF_DONATION_MESSAGE
         : hasPrice
-          ? `El mínimo es ${minUsd.toFixed(2)} USD ≈ ${minEth} POL`
+          ? `El mínimo es ${minUsd.toFixed(2)} USD ≈ ${minPol} POL`
           : "",
       hintHidden: !(blockedByRole || belowMin),
       canFund,
@@ -746,14 +746,14 @@ export class WhiskitoDonateCard extends WhiskitoElement {
 
     for (const chip of this.root.querySelectorAll(".chip")) {
       chip.addEventListener("click", () => {
-        const price = this.ethPrice;
+        const price = this.polPrice;
         if (!price) return;
         const usd = Number(chip.dataset.usd);
         // Redondeo hacia arriba a 6 decimales: nunca quedar por debajo del
         // mínimo on-chain por culpa del truncado.
-        const eth = Math.ceil((usd / price) * 1e6) / 1e6;
-        this.amount = String(eth);
-        this.emit("whiskito:amount-change", { amount: eth, usd: eth * price });
+        const pol = Math.ceil((usd / price) * 1e6) / 1e6;
+        this.amount = String(pol);
+        this.emit("whiskito:amount-change", { amount: pol, usd: pol * price });
       });
     }
 

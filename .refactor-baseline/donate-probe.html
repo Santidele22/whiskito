@@ -233,7 +233,7 @@
         const mRoot = shadow(modal);
         const overlay = mRoot.querySelector("#overlay") ?? mRoot.firstElementChild;
         check("D4 la tarjeta está montada y ofrece donar", Boolean(fund));
-        check("D5 el precio llegó a la tarjeta", Number.isFinite(card.ethPrice), `ethPrice=${card.ethPrice}`);
+        check("D5 el precio llegó a la tarjeta", Number.isFinite(card.polPrice), `polPrice=${card.polPrice}`);
         check("D6 la card dice A QUIÉN le donás", textoDe(card).includes("0xf39f...2266"));
         // La página del link cobra de verdad: no puede haber ningún aviso de
         // demo, ni en el documento ni adentro de la tarjeta.
