@@ -14,6 +14,12 @@ let walletClient;
 let publicClient;
 /** Red con la que está trabajando la app: la de la wallet, o la de por defecto. */
 let activeNetwork = effectiveNetwork(DEFAULT_CHAIN_ID);
+/**
+ * La red en la que está la WALLET conectada, según la última vez que nos lo
+ * dijo (`eth_chainId` al conectar, o el evento `chainChanged`). Es la realidad
+ * que hay que comparar contra `activeNetwork`, que puede pedir otra cosa.
+ */
+let walletChainId = null;
 
 /** Handlers registrados para `accountsChanged` (ver `onWalletAccountsChange`). */
 const accountChangeHandlers = new Set();
@@ -23,6 +29,15 @@ const accountChangeHandlers = new Set();
  * registrado agregaría otra: la wallet avisaría tantas veces como registros haya.
  */
 let accountsSubscribed = false;
+
+/** Handlers registrados para `chainChanged` (ver `onWalletChainChange`). */
+const chainChangeHandlers = new Set();
+
+/**
+ * ¿Ya hay UNA suscripción a `chainChanged`? Es una bandera PROPIA: registrar un
+ * handler de red no puede compartir (ni duplicar) la suscripción de cuentas.
+ */
+let chainSubscribed = false;
 
 const DEFAULT_NATIVE_CURRENCY = { name: "POL", symbol: "POL", decimals: 18 };
 
@@ -77,6 +92,114 @@ export function hasWallet() {
   return typeof window.ethereum !== "undefined";
 }
 
+/**
+ * La red en la que está la WALLET; `null` si no hay conexión. Es la REALIDAD:
+ * `activeNetwork` es lo que la app necesita, y puede no ser lo mismo.
+ */
+export function getWalletChainId() {
+  return walletClient ? walletChainId : null;
+}
+
+/**
+ * ¿La wallet conectada está en la red activa? Sólo entonces la firma tiene
+ * sentido: la escritura sale de la wallet y va al contrato de `activeNetwork`.
+ */
+export function walletMatchesActiveNetwork() {
+  const wallet = getWalletChainId();
+  return (
+    wallet !== null && activeNetwork !== null && wallet === activeNetwork.chainId
+  );
+}
+
+/**
+ * El texto del desajuste, en un solo lugar: lo dicen igual la conexión y la
+ * guarda de escritura (`tx.js`), y nombra SIEMPRE las dos redes.
+ */
+export function networkMismatchMessage() {
+  return `Tu wallet está en la red ${getWalletChainId()} y esta página es de la red ${
+    getActiveNetwork()?.chainId
+  }. Cambiá de red en tu wallet para firmar.`;
+}
+
+/** EIP-1193 4902: la wallet no conoce esa red (se agrega con `wallet_addEthereumChain`). */
+function isUnknownChain(error) {
+  if (error?.code === 4902) return true;
+  return /unrecognized chain|unknown chain|no such chain/i.test(
+    String(error?.message ?? "")
+  );
+}
+
+/** La red de la wallet, preguntada a la wallet misma (`eth_chainId`). */
+async function readWalletChainId() {
+  if (!hasWallet() || typeof window.ethereum?.request !== "function") return null;
+  try {
+    const id = Number(await window.ethereum.request({ method: "eth_chainId" }));
+    return Number.isFinite(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Le PIDE a la wallet que se mueva a la red activa (con `?chain=` la URL es una
+ * instrucción, y la wallet es la realidad: o se mueve, o no se firma).
+ *
+ * Nunca lanza. Devuelve `true` sólo si la wallet QUEDÓ en la red activa; `false`
+ * si el usuario rechazó (4001), si la wallet no puede, o si contestó que sí
+ * pero siguió en otra red. Si la wallet no conoce la red (4902) se la agrega
+ * con `wallet_addEthereumChain`, derivando los params de la config de ESA red.
+ */
+export async function switchToActiveNetwork() {
+  if (!activeNetwork) return false;
+  if (!hasWallet() || typeof window.ethereum?.request !== "function") {
+    return false;
+  }
+  const chainIdHex = "0x" + activeNetwork.chainId.toString(16);
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: chainIdHex }],
+    });
+  } catch (error) {
+    // El usuario cerró el pedido: no hay nada más que hacer.
+    if (isUserRejection(error)) return false;
+    // Cualquier otra cosa que no sea "no conozco esa red" o "no sé hacer eso"
+    // también es un no: no se firma contra una red que no es la activa.
+    if (!isUnknownChain(error) && !isUnsupportedMethod(error)) return false;
+    try {
+      await window.ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            chainId: chainIdHex,
+            chainName: activeNetwork.name,
+            nativeCurrency:
+              activeNetwork.nativeCurrency ?? DEFAULT_NATIVE_CURRENCY,
+            rpcUrls: [activeNetwork.rpc],
+            blockExplorerUrls: activeNetwork.explorer
+              ? [activeNetwork.explorer]
+              : [],
+          },
+        ],
+      });
+    } catch {
+      return false; // el usuario rechazó el alta (o la wallet no pudo)
+    }
+    // Muchas wallets cambian solas al agregar; otras no. Se lo pedimos igual y
+    // el veredicto lo da la lectura de la red, no el silencio de la wallet.
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: chainIdHex }],
+      });
+    } catch {
+      /* puede haber cambiado ya con el alta: lo decide la lectura de abajo */
+    }
+  }
+  walletChainId = await readWalletChainId();
+  return walletChainId === activeNetwork.chainId;
+}
+
 export async function connectWallet() {
   //Solo detecta la wallet solamente si el usuario tiene descargado el plugin en su browser.
   if (!hasWallet()) {
@@ -87,9 +210,13 @@ export async function connectWallet() {
   const probeWalletClient = createWalletClient({ transport });
   const [address] = await probeWalletClient.requestAddresses();
 
-  // La red la manda la wallet: si está en otra, se usa la config de ESA red.
+  // La red la manda la wallet: si está en otra, se usa la config de ESA red. El
+  // `?chain=` de la URL gana igual (lo resuelve `effectiveNetwork`): es una
+  // instrucción, y quien tiene que moverse es la wallet.
+  let walletChain = null;
   try {
-    activeNetwork = effectiveNetwork(await probeWalletClient.getChainId());
+    walletChain = await probeWalletClient.getChainId();
+    activeNetwork = effectiveNetwork(walletChain);
   } catch (error) {
     // Conectado, pero en una red que no está en config.js: sin datos de chain.
     console.warn(error.message, "→ se conecta igual, pero sin datos de chain.");
@@ -102,12 +229,27 @@ export async function connectWallet() {
     chain,
     transport,
   });
+  walletChainId = walletChain;
+
+  // Si la wallet no está en la red que la página necesita, se le pide que se
+  // mueva. Si no se mueve, acá NO hay quién firme: se suelta el cliente y se
+  // dice el desajuste (el mismo mensaje que muestra la UI de error de conexión).
+  if (activeNetwork && !walletMatchesActiveNetwork()) {
+    const moved = await switchToActiveNetwork();
+    if (!moved) {
+      const mensaje = networkMismatchMessage();
+      walletClient = undefined;
+      walletChainId = null;
+      throw new Error(mensaje);
+    }
+  }
   // Las LECTURAS no van por la wallet: van por HTTP, así no dependen de que
   // MetaMask esté autorizado ni de la red en la que esté el usuario.
   if (activeNetwork) publicClient = createReadClient();
-  // Recién acá hay wallet segura: es el segundo momento en que se asegura la
-  // suscripción a `accountsChanged` (ver `ensureAccountsSubscription`).
+  // Recién acá hay wallet segura: es el segundo momento en que se aseguran las
+  // suscripciones a `accountsChanged` y a `chainChanged` (ver sus `ensure…`).
   ensureAccountsSubscription();
+  ensureChainSubscription();
   return address;
 }
 
@@ -175,6 +317,58 @@ export function onWalletAccountsChange(handler) {
 }
 
 /**
+ * Se suscribe a `chainChanged`, UNA sola vez y de forma perezosa: mismo patrón
+ * que `ensureAccountsSubscription` —y con bandera propia, para que registrar un
+ * handler de red no toque la suscripción de cuentas—.
+ *
+ * Cuando la wallet avisa que cambió de red: la app recalcula su red activa (con
+ * `?chain=` la URL sigue ganando), rehace el cliente de lectura —o lo suelta,
+ * para no seguir leyendo la red que la wallet acaba de dejar— y avisa a los
+ * handlers. Cada handler va en su try/catch: uno que revienta no puede romper la
+ * suscripción ni la página.
+ */
+function ensureChainSubscription() {
+  if (chainSubscribed) return;
+  if (!hasWallet() || typeof window.ethereum.on !== "function") return;
+  window.ethereum.on("chainChanged", (chainId) => {
+    const next = Number(chainId);
+    walletChainId = Number.isFinite(next) ? next : null;
+    try {
+      activeNetwork = effectiveNetwork(walletChainId ?? DEFAULT_CHAIN_ID);
+    } catch (error) {
+      // La wallet se fue a una red que no está en config.js: sin datos de chain.
+      console.warn(error.message, "→ se sigue sin datos de chain.");
+      activeNetwork = null;
+    }
+    publicClient = activeNetwork ? createReadClient() : undefined;
+    for (const handler of chainChangeHandlers) {
+      try {
+        handler(activeNetwork);
+      } catch (error) {
+        console.warn("Un handler de chainChanged falló:", error?.message ?? error);
+      }
+    }
+  });
+  chainSubscribed = true;
+}
+
+/**
+ * Registra un handler para los cambios de RED que haga el usuario EN SU WALLET
+ * (`chainChanged`; la dApp no pregunta). Devuelve la función para desregistrarlo.
+ *
+ * Mismo contrato que `onWalletAccountsChange`: sin wallet —o con una sin `.on`—
+ * no lanza y devuelve un no-op, y el handler se llama dentro de un try/catch.
+ */
+export function onWalletChainChange(handler) {
+  if (typeof handler !== "function") return () => {};
+  chainChangeHandlers.add(handler);
+  ensureChainSubscription();
+  return () => {
+    chainChangeHandlers.delete(handler);
+  };
+}
+
+/**
  * Cambiar de cuenta: pide el SELECTOR de cuentas de la wallet (MetaMask) y
  * reconstruye los clientes con la cuenta elegida.
  *
@@ -215,6 +409,7 @@ export async function switchWalletAccount() {
 /** Suelta el estado de la wallet: la dApp deja de poder firmar y de leer. */
 export function disconnectWallet() {
   walletClient = undefined;
+  walletChainId = null;
   publicClient = undefined;
 }
 

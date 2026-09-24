@@ -93,8 +93,22 @@ export function urlConfig(search = globalThis.location?.search ?? "") {
   const rpc = params.get("rpc");
   const fund = params.get("fund");
   if (!chain && !rpc && !fund) return null;
-  const chainId = Number(chain) || DEFAULT_CHAIN_ID;
-  const base = NETWORKS[chainId] ?? NETWORKS[DEFAULT_CHAIN_ID];
+  // Un `?chain=` que no está en NETWORKS (un typo, o una red que no existe) se
+  // descarta ENTERO: se cae a la red del origen. Conservar el chainId de la URL
+  // con el `fund`/`rpc` de otra red mezclaría dos redes, y la app firmaría
+  // contra el contrato de una creyendo estar en la otra. Por eso esta función
+  // nunca devuelve un `chainId` distinto del de la config que devuelve.
+  const pedida = Number(chain);
+  const conocida = chain && NETWORKS[pedida] ? pedida : null;
+  if (chain && !conocida) {
+    console.warn(
+      `?chain=${chain} no está en NETWORKS: uso la red por defecto (${DEFAULT_CHAIN_ID}).`
+    );
+  }
+  const chainId = conocida ?? DEFAULT_CHAIN_ID;
+  const base = NETWORKS[chainId];
+  // `rpc=` y `fund=` son perillas independientes y explícitas (probar un nodo
+  // caído, apuntar a otro contrato): ésas se conservan tal cual vengan.
   return {
     ...base,
     chainId,

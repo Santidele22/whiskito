@@ -16,7 +16,7 @@
     <pre id="out">corriendo…</pre>
 
     <script type="module">
-      import { NETWORKS } from "../src/js/config.js";
+      import { NETWORKS, urlConfig, DEFAULT_CHAIN_ID } from "../src/js/config.js";
       const CONTRATO = NETWORKS[31337].fund; // el harness conoce la dirección del contrato
       const CB = "?cb=" + Date.now();
       const frameNuevo = document.getElementById("nuevo");
@@ -93,6 +93,78 @@
         await sleep(2500); // montaje + bootstrap de main.js
 
         try {
+          // ── G1. Un `?chain=` desconocido no puede mezclar dos redes ────
+          // Todo LOCAL y determinista: se lee la config, no se habla con ningún
+          // RPC (nada del Amoy público). El invariante que se prueba es que el
+          // `chainId` que devuelve `urlConfig()` es SIEMPRE el de la config que
+          // devuelve: nunca el de una red con el `fund`/`rpc` de otra.
+          const ANVIL_CFG = NETWORKS[31337];
+          const AMOY_CFG = NETWORKS[80002];
+          const OV_RPC = "http://127.0.0.1:9999";
+          const OV_FUND = "0x1111111111111111111111111111111111111111";
+          const Q_DESCONOCIDO = "?chain=99999";
+          const Q_MIXTO = `?chain=99999&rpc=${OV_RPC}&fund=${OV_FUND}`;
+          const casosG1 = [
+            { q: Q_DESCONOCIDO, red: 31337, rpc: ANVIL_CFG.rpc, fund: ANVIL_CFG.fund },
+            { q: "?chain=abc", red: 31337, rpc: ANVIL_CFG.rpc, fund: ANVIL_CFG.fund },
+            { q: "?chain=8002", red: 31337, rpc: ANVIL_CFG.rpc, fund: ANVIL_CFG.fund },
+            { q: Q_MIXTO, red: 31337, rpc: OV_RPC, fund: OV_FUND },
+            { q: "?chain=31337", red: 31337, rpc: ANVIL_CFG.rpc, fund: ANVIL_CFG.fund },
+            { q: "?chain=80002", red: 80002, rpc: AMOY_CFG.rpc, fund: AMOY_CFG.fund },
+            { q: `?rpc=${OV_RPC}`, red: 31337, rpc: OV_RPC, fund: ANVIL_CFG.fund },
+          ];
+          const incoherentesG1 = casosG1.filter(({ q, red, rpc, fund }) => {
+            const cfg = urlConfig(q);
+            return !cfg || cfg.chainId !== red || cfg.rpc !== rpc || cfg.fund !== fund;
+          }).map(({ q }) => {
+            const cfg = urlConfig(q);
+            return `${q} → chainId=${cfg?.chainId} rpc=${cfg?.rpc} fund=${cfg?.fund}`;
+          });
+          check("G1a ningún `?chain=` devuelve un chainId con el fund/rpc de otra red",
+            incoherentesG1.length === 0, incoherentesG1.join(" | "));
+          eq("G1b un `?chain=` desconocido cae a la red del ORIGEN (anvil 31337)",
+            urlConfig(Q_DESCONOCIDO).chainId, DEFAULT_CHAIN_ID);
+          check("G1c y con la config ENTERA de esa red: chainId, rpc y fund son los de anvil",
+            urlConfig(Q_DESCONOCIDO).chainId === 31337 &&
+              urlConfig(Q_DESCONOCIDO).rpc === ANVIL_CFG.rpc &&
+              urlConfig(Q_DESCONOCIDO).fund === ANVIL_CFG.fund,
+            `chainId=${urlConfig(Q_DESCONOCIDO).chainId} rpc=${urlConfig(Q_DESCONOCIDO).rpc} fund=${urlConfig(Q_DESCONOCIDO).fund}`);
+          check("G1d `?chain=abc` (no numérico) cuenta como desconocido",
+            urlConfig("?chain=abc").chainId === 31337 &&
+              urlConfig("?chain=abc").fund === ANVIL_CFG.fund,
+            `chainId=${urlConfig("?chain=abc").chainId} fund=${urlConfig("?chain=abc").fund}`);
+          check("G1e `?chain=8002` (typo de 80002) también",
+            urlConfig("?chain=8002").chainId === 31337 &&
+              urlConfig("?chain=8002").fund === ANVIL_CFG.fund,
+            `chainId=${urlConfig("?chain=8002").chainId} fund=${urlConfig("?chain=8002").fund}`);
+          check("G1f `?rpc=`/`?fund=` explícitos se conservan (son perillas independientes)",
+            urlConfig(Q_MIXTO).rpc === OV_RPC && urlConfig(Q_MIXTO).fund === OV_FUND,
+            `rpc=${urlConfig(Q_MIXTO).rpc} fund=${urlConfig(Q_MIXTO).fund}`);
+          eq("G1g sin ningún param no hay override", urlConfig(""), null);
+          check("G1h `?chain=80002` sigue devolviendo Amoy COMPLETA (nada más cambió)",
+            urlConfig("?chain=80002").chainId === 80002 &&
+              urlConfig("?chain=80002").rpc === AMOY_CFG.rpc &&
+              urlConfig("?chain=80002").fund === AMOY_CFG.fund,
+            `chainId=${urlConfig("?chain=80002").chainId} rpc=${urlConfig("?chain=80002").rpc}`);
+          // Y la red EFECTIVA de la app (no sólo la config): una página pedida
+          // con `?chain=99999` tiene que trabajar contra anvil, con el contrato
+          // de anvil y su rpc.
+          const frameG1 = document.createElement("iframe");
+          frameG1.style.cssText = "width:1440px;height:900px;border:0;position:absolute;left:-10000px";
+          frameG1.src = `/src/index.html?cb=${Date.now()}&chain=99999`;
+          document.body.append(frameG1);
+          await new Promise((res) => frameG1.addEventListener("load", res, { once: true }));
+          await sleep(1800);
+          const winG1 = frameG1.contentWindow;
+          const redEfectivaG1 = await winG1.eval(
+            '(async () => (await import("/src/js/chain.js")).getActiveNetwork())()'
+          );
+          check("G1i con `?chain=99999` la app trabaja contra la red del origen (anvil 31337)",
+            redEfectivaG1?.chainId === 31337 &&
+              redEfectivaG1?.fund === ANVIL_CFG.fund &&
+              redEfectivaG1?.rpc === ANVIL_CFG.rpc,
+            `chainId=${redEfectivaG1?.chainId} fund=${redEfectivaG1?.fund} rpc=${redEfectivaG1?.rpc}`);
+
           const win = frameNuevo.contentWindow;
           const doc = win.document;
           // El MISMO módulo de la frontera que usa la app, para interactuar con
@@ -1495,6 +1567,240 @@
             firmas4.length === 0 && card4.status === "success" &&
               !/on-chain/i.test(NORM(cardRoot4.querySelector("#txText").textContent)),
             `firmas=${firmas4.length} status=${card4.status} msj=${NORM(cardRoot4.querySelector("#txText").textContent)}`);
+
+          // ── G2. La URL es una INSTRUCCIÓN; la wallet es la REALIDAD ────
+          // La página del link se pide con `?chain=31337` (anvil) y una wallet
+          // EIP-1193 falsa dice estar en Amoy (80002). Al conectar, la app tiene
+          // que PEDIRLE el cambio de red; si la wallet rechaza (4001), no puede
+          // salir ninguna transacción y la app tiene que decir el desajuste.
+          // Nada de esto toca el RPC público de Amoy: la wallet es un stub y el
+          // único nodo que contesta es el anvil local.
+          const frameG2a = document.createElement("iframe");
+          frameG2a.style.cssText = "width:1440px;height:900px;border:0;position:absolute;left:-10000px";
+          frameG2a.src = `/src/donate.html?cb=${Date.now()}&u=${OTRO_DUEÑO}&chain=31337`;
+          document.body.append(frameG2a);
+          await new Promise((res) => frameG2a.addEventListener("load", res, { once: true }));
+          await sleep(1800);
+          const winG2a = frameG2a.contentWindow;
+          const cardG2a = winG2a.document.querySelector("whiskito-donate-card");
+          const cardRootG2a = cardG2a.shadowRoot;
+          const pedidosG2a = [];
+          winG2a.ethereum = {
+            isMetaMask: true,
+            request: async ({ method, params }) => {
+              pedidosG2a.push({ method, params });
+              if (method === "eth_requestAccounts" || method === "eth_accounts") return [DONANTE];
+              if (method === "eth_chainId") return "0x13882"; // 80002: la wallet está en Amoy
+              if (method === "wallet_switchEthereumChain") {
+                const error = new Error("User rejected the request.");
+                error.code = 4001;
+                throw error;
+              }
+              if (method === "eth_blockNumber") return "0x2";
+              throw new Error("método no esperado: " + method);
+            },
+            on: () => {},
+          };
+          cardRootG2a.querySelector("#connectWallet").click();
+          await sleep(1800);
+          const cambiosG2a = pedidosG2a.filter((p) => p.method === "wallet_switchEthereumChain");
+          check("G2a con la wallet en otra red, conectar le PIDE moverse a la red de la página (0x7a69)",
+            cambiosG2a.length >= 1 && cambiosG2a[0].params?.[0]?.chainId === "0x7a69",
+            `cambios=${JSON.stringify(cambiosG2a)}`);
+          check("G2b la wallet rechazó (4001): no sale NINGUNA transacción",
+            pedidosG2a.every((p) => p.method !== "eth_sendTransaction"),
+            `métodos=${[...new Set(pedidosG2a.map((p) => p.method))].join(",")}`);
+          check("G2c y la app dice el desajuste, con SU mensaje y nombrando las dos redes",
+            /tu wallet está en la red/i.test(cardG2a.message ?? "") &&
+              /\b80002\b/.test(cardG2a.message ?? "") &&
+              /\b31337\b/.test(cardG2a.message ?? ""),
+            `status=${cardG2a.status} msj=${cardG2a.message}`);
+          // Y si igual se pide donar, tampoco sale nada: sin wallet usable no hay
+          // quién firme (la app no puede firmar contra anvil con una wallet que
+          // quedó en Amoy).
+          const inputG2a = cardRootG2a.querySelector("#ehtAmount");
+          inputG2a.value = "0.001";
+          inputG2a.dispatchEvent(new winG2a.Event("input", { bubbles: true }));
+          await sleep(250);
+          cardRootG2a.querySelector("#fundButton").click();
+          await sleep(2000);
+          check("G2d donar con la wallet en otra red tampoco manda ninguna transacción",
+            pedidosG2a.every((p) => p.method !== "eth_sendTransaction"),
+            `firmas=${pedidosG2a.filter((p) => p.method === "eth_sendTransaction").length} msj=${cardG2a.message}`);
+
+          // ── G2e. La wallet se MUEVE de red DESPUÉS de conectar ────────
+          // La app tiene que enterarse por `chainChanged` (sin recargar) y
+          // reaccionar: con `?chain=` la URL manda, así que la wallet quedó fuera
+          // de la red que la página pide y hay que decirlo.
+          const frameG2b = document.createElement("iframe");
+          frameG2b.style.cssText = "width:1440px;height:900px;border:0;position:absolute;left:-10000px";
+          frameG2b.src = `/src/donate.html?cb=${Date.now()}&u=${OTRO_DUEÑO}&chain=31337`;
+          document.body.append(frameG2b);
+          await new Promise((res) => frameG2b.addEventListener("load", res, { once: true }));
+          await sleep(1800);
+          const winG2b = frameG2b.contentWindow;
+          const cardG2b = winG2b.document.querySelector("whiskito-donate-card");
+          const cardRootG2b = cardG2b.shadowRoot;
+          const pedidosG2b = [];
+          const oyentesG2b = new Map();
+          let redG2b = 31337; // arranca en la MISMA red que pide la página
+          winG2b.ethereum = {
+            isMetaMask: true,
+            request: async ({ method, params }) => {
+              pedidosG2b.push({ method, params });
+              if (method === "eth_requestAccounts" || method === "eth_accounts") return [DONANTE];
+              if (method === "eth_chainId") return "0x" + redG2b.toString(16);
+              if (method === "wallet_switchEthereumChain") {
+                const error = new Error("User rejected the request.");
+                error.code = 4001;
+                throw error;
+              }
+              if (method === "eth_blockNumber") return "0x2";
+              throw new Error("método no esperado: " + method);
+            },
+            on: (evento, handler) => {
+              if (!oyentesG2b.has(evento)) oyentesG2b.set(evento, []);
+              oyentesG2b.get(evento).push(handler);
+            },
+          };
+          cardRootG2b.querySelector("#connectWallet").click();
+          await sleep(1800);
+          check("G2e con la wallet en la red de la página, conecta sin pedir ningún cambio",
+            cardG2b.viewer?.toLowerCase() === DONANTE.toLowerCase() &&
+              !pedidosG2b.some((p) => p.method === "wallet_switchEthereumChain"),
+            `viewer=${cardG2b.viewer} métodos=${[...new Set(pedidosG2b.map((p) => p.method))].join(",")}`);
+          // El usuario cambia de red en su wallet: MetaMask avisa por `chainChanged`.
+          redG2b = 80002;
+          for (const handler of oyentesG2b.get("chainChanged") ?? []) handler("0x13882");
+          await sleep(1800);
+          check("G2f la app se suscribe UNA sola vez a chainChanged y lo sigue sin recargar",
+            (oyentesG2b.get("chainChanged") ?? []).length === 1 &&
+              pedidosG2b.filter((p) => p.method === "wallet_switchEthereumChain").length >= 1,
+            `suscripciones=${(oyentesG2b.get("chainChanged") ?? []).length} cambios=${pedidosG2b.filter((p) => p.method === "wallet_switchEthereumChain").length}`);
+          check("G2g y lo dice con su mensaje: la wallet quedó en otra red que la de la página",
+            /tu wallet está en la red/i.test(cardG2b.message ?? "") &&
+              /\b80002\b/.test(cardG2b.message ?? "") &&
+              /\b31337\b/.test(cardG2b.message ?? ""),
+            `status=${cardG2b.status} msj=${cardG2b.message}`);
+
+          // ── G2h. La guarda de ESCRITURA: ni simular ni firmar ─────────
+          // Acá el cliente de wallet queda VIVO y la guarda de `tx.js` es la
+          // ÚNICA capa que puede frenar: la wallet avisa por `chainChanged` que
+          // se fue a Amoy, pero su `eth_chainId` todavía contesta 31337 (la
+          // carrera real: el evento llega antes de que el provider actualice su
+          // estado), así que el chequeo interno de viem —que compara la cadena
+          // del cliente contra `eth_chainId`— NO ve el desajuste. Si la app no
+          // mirara la red que la wallet avisó, simularía y firmaría.
+          const frameG2c = document.createElement("iframe");
+          frameG2c.style.cssText = "width:1440px;height:900px;border:0;position:absolute;left:-10000px";
+          frameG2c.src = `/src/donate.html?cb=${Date.now()}&u=${OTRO_DUEÑO}&chain=31337`;
+          document.body.append(frameG2c);
+          await new Promise((res) => frameG2c.addEventListener("load", res, { once: true }));
+          await sleep(1800);
+          const winG2c = frameG2c.contentWindow;
+          const cardG2c = winG2c.document.querySelector("whiskito-donate-card");
+          const cardRootG2c = cardG2c.shadowRoot;
+          const pedidosG2c = [];
+          const oyentesG2c = new Map();
+          let bloqueadaG2c = false; // la wallet deja de dar cuentas tras el cambio
+          winG2c.ethereum = {
+            isMetaMask: true,
+            request: async ({ method, params }) => {
+              pedidosG2c.push({ method, params });
+              if (method === "eth_requestAccounts" || method === "eth_accounts") {
+                if (bloqueadaG2c) {
+                  const error = new Error("The requested account is not available.");
+                  error.code = 4100;
+                  throw error;
+                }
+                return [DONANTE];
+              }
+              // A propósito: la wallet avisa del cambio por `chainChanged`, pero
+              // sigue contestando la red vieja (la carrera).
+              if (method === "eth_chainId") return "0x7a69";
+              if (method === "eth_sendTransaction") return "0x" + "ef".repeat(32);
+              if (method === "eth_blockNumber") return "0x2";
+              throw new Error("método no esperado: " + method);
+            },
+            on: (evento, handler) => {
+              if (!oyentesG2c.has(evento)) oyentesG2c.set(evento, []);
+              oyentesG2c.get(evento).push(handler);
+            },
+          };
+          cardRootG2c.querySelector("#connectWallet").click();
+          await sleep(1800);
+          bloqueadaG2c = true;
+          for (const handler of oyentesG2c.get("chainChanged") ?? []) handler("0x13882");
+          await sleep(1500);
+          const inputG2c = cardRootG2c.querySelector("#ehtAmount");
+          inputG2c.value = "0.001";
+          inputG2c.dispatchEvent(new winG2c.Event("input", { bubbles: true }));
+          await sleep(250);
+          cardRootG2c.querySelector("#fundButton").click();
+          await sleep(2000);
+          check("G2h con la wallet fuera de la red activa, donar no llega a simular ni a firmar",
+            cardG2c.viewer?.toLowerCase() === DONANTE.toLowerCase() &&
+              pedidosG2c.every((p) => p.method !== "eth_sendTransaction"),
+            `viewer=${cardG2c.viewer} firmas=${pedidosG2c.filter((p) => p.method === "eth_sendTransaction").length} métodos=${[...new Set(pedidosG2c.map((p) => p.method))].join(",")}`);
+          check("G2i y la app dice el desajuste (su propio mensaje, con las dos redes) en vez de fingir una donación",
+            cardG2c.status === "error" &&
+              /tu wallet está en la red/i.test(cardG2c.message ?? "") &&
+              /\b80002\b/.test(cardG2c.message ?? "") &&
+              /\b31337\b/.test(cardG2c.message ?? ""),
+            `status=${cardG2c.status} msj=${cardG2c.message}`);
+
+          // ── G2j. La LANDING también sigue el cambio de red ────────────
+          // Mismo caso que G2f/G2g, pero en la landing: el navbar no puede
+          // quedar diciendo "Conectado" mientras la wallet está en otra red.
+          const frameG2d = document.createElement("iframe");
+          frameG2d.style.cssText = "width:1440px;height:900px;border:0;position:absolute;left:-10000px";
+          frameG2d.src = `/src/index.html?cb=${Date.now()}&chain=31337`;
+          document.body.append(frameG2d);
+          await new Promise((res) => frameG2d.addEventListener("load", res, { once: true }));
+          await sleep(1800);
+          const winG2d = frameG2d.contentWindow;
+          const navbarG2d = winG2d.document.querySelector("whiskito-navbar");
+          const pedidosG2d = [];
+          const oyentesG2d = new Map();
+          let redG2d = 31337;
+          winG2d.ethereum = {
+            isMetaMask: true,
+            request: async ({ method, params }) => {
+              pedidosG2d.push({ method, params });
+              if (method === "eth_requestAccounts" || method === "eth_accounts") return [DONANTE];
+              if (method === "eth_chainId") return "0x" + redG2d.toString(16);
+              if (method === "wallet_switchEthereumChain") {
+                const error = new Error("User rejected the request.");
+                error.code = 4001;
+                throw error;
+              }
+              if (method === "eth_blockNumber") return "0x2";
+              if (method === "eth_getTransactionReceipt") return null;
+              throw new Error("método no esperado: " + method);
+            },
+            on: (evento, handler) => {
+              if (!oyentesG2d.has(evento)) oyentesG2d.set(evento, []);
+              oyentesG2d.get(evento).push(handler);
+            },
+          };
+          winG2d.document
+            .querySelector("whiskito-navbar")
+            .shadowRoot.querySelector("#connectButton")
+            .click();
+          await sleep(1800);
+          check("G2j la landing conecta con la wallet en su red y no pide ningún cambio",
+            navbarG2d.connectionState === "connected" &&
+              oyentesG2d.get("chainChanged")?.length === 1 &&
+              !pedidosG2d.some((p) => p.method === "wallet_switchEthereumChain"),
+            `estado=${navbarG2d.connectionState} suscripciones=${oyentesG2d.get("chainChanged")?.length} métodos=${[...new Set(pedidosG2d.map((p) => p.method))].join(",")}`);
+          redG2d = 80002;
+          for (const handler of oyentesG2d.get("chainChanged") ?? []) handler("0x13882");
+          await sleep(1800);
+          check("G2k y cuando la wallet cambia de red, la landing lo sigue sin recargar y no queda 'conectada' contra otra red",
+            navbarG2d.connectionState !== "connected" &&
+              pedidosG2d.filter((p) => p.method === "wallet_switchEthereumChain").length >= 1 &&
+              pedidosG2d.every((p) => p.method !== "eth_sendTransaction"),
+            `estado=${navbarG2d.connectionState} cambios=${pedidosG2d.filter((p) => p.method === "wallet_switchEthereumChain").length} firmas=${pedidosG2d.filter((p) => p.method === "eth_sendTransaction").length}`);
 
           // ── L. Iconos: Lucide hidratado, y ningún emoji suelto ────
           // El objetivo del cambio era sacar los iconos hardcodeados: acá se

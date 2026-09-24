@@ -61,7 +61,8 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está pu
 1. **Toda escritura al contrato pasa por `src/js/tx.js`.** El camino es
    `writeAndConfirm({ functionName, args, value })` = simular → firmar → confirmar el recibo.
    Las piezas sueltas (`simulateWrite`, `confirmReceipt`) y las guardas (`requireNetwork`,
-   `requirePublicClient`, `requireWalletClient`) viven ahí y **se reutilizan, no se copian**.
+   `requireSigningNetwork`, `requirePublicClient`, `requireWalletClient`) viven ahí y **se
+   reutilizan, no se copian**.
 2. **`writeContract` no existe en el cliente de lectura**: es una acción de *wallet*. Usar
    `getPublicClient().writeContract(...)` es `TypeError` en runtime.
 3. **`waitForTransactionReceipt` resuelve aunque la transacción se haya revertido**
@@ -101,11 +102,34 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está pu
    `10.`/`192.168.`/`172.16–31.`, o `.local` — así el QR de dev, que abre el server local desde el
    celular por IP de LAN, sigue apuntando a anvil) y a **80002** en cualquier otro origen (el sitio
    publicado en Vercel). El override `?chain=` de la URL gana siempre.
+   Esos dos orígenes **son los entornos**: **dev** = anvil `31337` (`bun run dev`, gratis y sin
+   faucet); **qa** = Polygon Amoy `80002` (el sitio publicado, o local con `bun run dev` + abrir
+   `http://localhost:5173/?chain=80002` / `bunx --bun vite --open "/?chain=80002"`, sin levantar
+   anvil ni deployar; POL de faucet **sólo al firmar**, porque leer es gratis); **prod** = Polygon
+   mainnet `137`, **prevista y sin deploy**: no hay entrada en `NETWORKS` ni contrato deployado, así
+   que se documenta como el destino, nunca como algo hecho. El atajo de qa-desde-local es
+   `bun run dev:qa` (`bunx --bun vite --open "/?chain=80002"`): abre Vite apuntado a Amoy, **sin**
+   levantar anvil ni deployar nada.
 8c. **El profesional por defecto es POR RED**: `NETWORKS[red].professional` + `professionalFor(chainId)`
    (reemplaza a la vieja constante `PROFESSIONAL`). En anvil es la cuenta 0
    (`0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266`), en Amoy la del dueño
    (`0x74ffced34e75fb4b31f18889fa2a4de66be34523`). El link `/u/0x…` y `?u=0x…` siguen mandando
    sobre ese valor.
+8d. **Un `?chain=` que no está en `NETWORKS` se descarta ENTERO** (con un `console.warn`) y se cae a
+   la red del ORIGEN: `urlConfig` **nunca** devuelve un `chainId` distinto del de la config que
+   devuelve. La trampa que eso evita: conservar el `chainId` de la URL con el `fund`/`rpc`/`priceFeed`
+   de la red por defecto —dos redes mezcladas— haría que la app firmara contra el contrato de una
+   creyendo estar en la otra. `?rpc=` y `?fund=` son perillas independientes (probar un nodo caído,
+   apuntar a otro deploy) y se conservan tal cual vengan. Lo verifican `G1a`–`G1i`.
+8e. **La URL es una instrucción; la wallet es la realidad.** Sin `?chain=`, `activeNetwork` sale de
+   la chain de la wallet, así que un desajuste es imposible. Con `?chain=`, la app le **pide** a la
+   wallet que se mueva (`wallet_switchEthereumChain`, y `wallet_addEthereumChain` si no conoce la
+   red) y, si el usuario rechaza, `connectWallet()` **lanza** y **no deja wallet client usable**: no
+   hay quién firme. El desajuste también puede aparecer *después* de conectar (la wallet se cambia
+   de red), así que la guarda que manda en la escritura es `requireSigningNetwork()` de `tx.js`
+   —corre antes de simular y de firmar—. **`requireNetwork()`, que comparten las lecturas, NO mira la
+   wallet**: leer va por HTTP al RPC de la red activa y no necesita a nadie conectado (§2.4); si la
+   guarda viviera ahí, un desajuste dejaría la página sin datos. Lo verifican `G2a`–`G2k`.
 9. **Identificadores en inglés, describiendo lo que hacen** (`writeAndConfirm`, `simulateWrite`,
    `confirmReceipt`); comentarios y texto de cara al usuario en español.
 10. **El ABI está dos veces** (`src/js/fund-abi.js` a mano y `src/fund.abi.json` de forge): si
@@ -143,8 +167,9 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
 - `run-harness.py` levanta `serve.py` (con `no-store`), abre `.refactor-baseline/islands.html` en
   Firefox headless y reporta `OK(n/n)` o `FALLOS(k/n)` más los status HTTP (un 404 delata una
   ruta rota) y los módulos que la página bajó de verdad. **Es la puerta de aceptación.** Hoy son
-  **237 aserciones**, e incluyen el modo demo (que donar **no** pida firma ni deje rastro), "Mi
-  Panel" leyendo donaciones reales de la chain y el camino real con `?demo=0`.
+  **257 aserciones**, e incluyen el modo demo (que donar **no** pida firma ni deje rastro), "Mi
+  Panel" leyendo donaciones reales de la chain, el camino real con `?demo=0` y el bloque **G** de
+  entornos (que elegir red no mienta: §2.8d–8e).
 - Necesita **anvil en `http://127.0.0.1:8545` (chainId 31337) con el deploy hecho y el oráculo
   fresco**. El harness se prepara su propio estado: dona de verdad y retira.
 - Qué correr según el cambio: tocaste módulos → `resolve-imports`; tocaste el contrato o el
@@ -293,6 +318,7 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
 - No matar el anvil del 8545 ni levantar otro ahí; no deployar a una red que no sea local sin que
   lo pidan. En Amoy el deploy es deliberado y lo corre el usuario con su keystore (`bun run
   deploy:amoy`): no lo dispares para "probar", y nunca escribas una address inventada en
-  `NETWORKS[80002].fund`.
+  `NETWORKS[80002].fund`. **«Probar qa» no es una excepción**: la puerta e2e es anvil-only (§3),
+  así que qa contra Amoy es QA manual y no hay deploy automático que lo cambie.
 - No debilitar ni borrar aserciones para que una corrida pase. Si una aserción molesta, se discute
   su premisa y se explica en el reporte; no se afloja.

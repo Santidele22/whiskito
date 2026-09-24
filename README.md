@@ -439,6 +439,60 @@ archivos viven en `dist/esm/`), `https://esm.sh/viem` → `viem` y `https://esm.
 `qrcode`. Sin los últimos dos, el build dejaría esas URLs como imports externos y `dist/` seguiría
 dependiendo de la red.
 
+### 6.0 Entornos
+
+Tres entornos, y sólo dos existen hoy: **dev** y **qa** corren; **prod** es el destino, no un hecho.
+
+| entorno | red | `chainId` | cómo se llega | qué cuesta |
+|---|---|---|---|---|
+| **dev** | anvil | `31337` | `bun run dev` (levanta la chain, deploya si hace falta y sirve Vite en `:5173`) | gratis, sin faucet |
+| **qa** | Polygon Amoy | `80002` | el sitio publicado en Vercel, **o** el frontend local apuntado a Amoy: `bun run dev` y abrir `http://localhost:5173/?chain=80002` | POL de faucet **sólo cuando se firma** |
+| **prod** | Polygon mainnet | `137` | **no existe todavía**: no hay entrada en `NETWORKS` ni contrato deployado | — |
+
+El atajo de qa-desde-local es **`bun run dev:qa`** (`bunx --bun vite --open "/?chain=80002"`): abre
+Vite apuntado a Amoy, **sin** levantar anvil ni deployar nada. Equivale a `bun run dev` + la URL con
+`?chain=80002`, pero sin la chain local de por medio.
+
+**La red por defecto sale del ORIGEN** (`DEFAULT_CHAIN_ID`, `src/js/config.js`): en local
+—`localhost`, loopback, `file://`/sin `location`, red privada o `.local`— la app apunta a **anvil**
+(`31337`), y en cualquier otro origen apunta al sitio publicado, o sea a **Amoy** (`80002`). Es
+deliberado: el QR del link de dev abre el server local desde el celular por IP de LAN, y esa visita
+tiene que seguir apuntando a anvil. Los hostnames exactos están en la tabla de §5.
+
+**Modos de trabajo contra qa** (ninguno necesita deployar nada):
+
+- **Lectura contra Amoy desde local, gratis y sin faucet**: `http://localhost:5173/?chain=80002`.
+  Es el mismo frontend local leyendo el `Fund` real de Amoy por su RPC público. `?chain=80002`
+  **sola alcanza**: devuelve la configuración completa de esa red (`fund`, `priceFeed`, `rpc`,
+  `explorer`), así que no hace falta ni `?rpc=` ni `?fund=`.
+- **Firma contra Amoy**: lo mismo, con la wallet conectada **en Amoy** (la app le pide el cambio de
+  red si no lo está). Recién ahí hace falta POL: es gas, y sale del faucet.
+- **La página del link (`/u/0x…`) contra Amoy desde local**: entrar **directo** a
+  `http://localhost:5173/donate.html?u=0x…&chain=80002`. El redirect `/u/:addr` —el de Vite en dev
+  y el de `vercel.json` en producción— **sí conserva** los query params extra (Vite los reescribe a
+  propósito en `vite.config.js`, y el de Vercel se comprobó en vivo: responde `307` con `?chain=`
+  intacto), pero entrar directo no depende de eso.
+
+**Anvil primero, deploy a Amoy después.** Todo se desarrolla y se verifica en anvil; el deploy a
+Amoy es **deliberado**, lo corre el usuario con su keystore (`bun run deploy:amoy`) y ningún agente
+lo dispara para «probar» (§6.1, y la prohibición en `AGENTS.md` §5).
+
+**La puerta e2e es anvil-only, y esto conviene decirlo fuerte**: `run-harness.py` y
+`run-donate-probe.py` exigen anvil en `8545` y el harness tiene la red clavada en `31337`, así que
+**qa contra Amoy hoy es QA manual**: ninguna aserción automática toca el `chainId 80002`.
+
+**`?chain=` es el override manual** y gana sobre el origen (§5). Un `chainId` que **no** está en
+`NETWORKS` **se descarta entero** —con un aviso por consola— y la app cae a la red del origen: nunca
+mezcla el `chainId` de una red con el `fund`/`rpc` de otra, así que un typo no puede hacer que firmes
+contra el contrato equivocado. `?rpc=` y `?fund=` siguen siendo perillas independientes (apuntar a
+otro nodo o a otro deploy) y se conservan tal cual vengan.
+
+**Si la wallet está en otra red, la app no firma.** Con `?chain=` la app le **pide** a la wallet que
+se mueva (y si no conoce la red, se la agrega); si el usuario rechaza, la conexión falla con un
+mensaje que nombra las dos redes. Y si la wallet se cambia de red *después* de conectar, la app lo
+sigue sin recargar y **frena la escritura antes de firmar** — mientras las lecturas siguen andando,
+porque van por HTTP al RPC de la red de la página y no dependen de la wallet.
+
 ### 6.1 Deploy en Polygon Amoy
 
 La red publicada es **Polygon Amoy**: `chainId 80002`, RPC público
@@ -560,7 +614,7 @@ la chain vuelva a cero. Además verifica el **modo demo de la landing** (su defa
 **no** pida ninguna firma, que no ensucie el resumen del panel, y que "Mi Panel" liste las
 **donaciones reales** de la chain (el harness manda una donación de verdad a una cuenta fresca y
 la busca en la tabla).
-Hoy son **237 aserciones**. Necesita anvil corriendo con el deploy hecho y el oráculo fresco (el
+Hoy son **257 aserciones**. Necesita anvil corriendo con el deploy hecho y el oráculo fresco (el
 mock arranca con la hora del deploy y el contrato rechaza precios de más de 3 h).
 
 La página que se comparte (`/u/0x…`) tiene su propia sonda, sobre el dev server —el único que

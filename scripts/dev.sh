@@ -2,7 +2,8 @@
 #
 # Entorno de desarrollo completo con un solo comando (`bun run dev`):
 #
-#   1. anvil — la chain local — **sólo si no hay ya una** escuchando en el RPC;
+#   1. anvil — la chain local — **sólo si no hay ya una** escuchando en el RPC
+#      (y sólo si esa chain es la 31337: el nodo de otro proyecto no se usa);
 #   2. el deploy (mock del oráculo + Fund) **sólo si el contrato todavía no está**;
 #   3. el servidor de desarrollo de Vite, con recarga en caliente.
 #
@@ -18,10 +19,33 @@
 set -uo pipefail
 
 RPC="http://127.0.0.1:8545"
-# La dirección del Fund de la red local, la misma de `src/js/config.js`.
-FUND="0xe7f1725e7734ce288f8367e1bb143e90bb3f0512"
+# El chainId que este script considera "su" chain local. Si en 8545 contesta
+# otra red, es el nodo de otro: no se lo toca ni se lo usa.
+CHAIN_ID_LOCAL=31337
+# La raíz del repo, para poder importar `config.js` aunque el script se corra
+# desde otro directorio.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 export PATH="$HOME/.bun/bin:$HOME/.foundry/bin:$PATH"
+
+# 0. La dirección del Fund de la red local, DERIVADA de `src/js/config.js` (no
+#    copiada): si el deploy cambia de dirección, este script la sigue solo. El
+#    módulo es puro y sin `location` `defaultChainId()` devuelve 31337, así que
+#    se puede importar desde Node.
+FUND="$(cd "$ROOT" && node --input-type=module -e '
+import { NETWORKS, DEFAULT_CHAIN_ID } from "./src/js/config.js";
+const red = NETWORKS[DEFAULT_CHAIN_ID];
+if (!red?.fund) process.exit(1);
+console.log(red.fund);
+' 2>/dev/null)" || FUND=""
+if [ -z "$FUND" ]; then
+  echo "!! no pude derivar la dirección del Fund desde src/js/config.js (NETWORKS[DEFAULT_CHAIN_ID].fund)" >&2
+  exit 1
+fi
+if ! [[ "$FUND" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+  echo "!! src/js/config.js devolvió una dirección de Fund que no es una address: '$FUND'" >&2
+  exit 1
+fi
 
 ANVIL_PID=""
 bajar_anvil() {
@@ -36,6 +60,7 @@ trap bajar_anvil EXIT
 trap 'exit 130' INT TERM
 
 rpc_responde() { cast chain-id --rpc-url "$RPC" >/dev/null 2>&1; }
+chain_id_del_rpc() { cast chain-id --rpc-url "$RPC" 2>/dev/null || true; }
 
 if ! command -v anvil >/dev/null 2>&1; then
   echo "!! no encuentro 'anvil'. Instalá Foundry o agregá \$HOME/.foundry/bin al PATH." >&2
@@ -44,7 +69,13 @@ fi
 
 # 1. La chain.
 if rpc_responde; then
-  echo "→ ya hay una chain en $RPC: no levanto otra"
+  CHAIN_ID_ACTUAL="$(chain_id_del_rpc)"
+  if [ "$CHAIN_ID_ACTUAL" != "$CHAIN_ID_LOCAL" ]; then
+    echo "!! en $RPC contesta la red $CHAIN_ID_ACTUAL, no la $CHAIN_ID_LOCAL que usa este proyecto." >&2
+    echo "   No la uso: podría ser el nodo de otro proyecto y el Fund de config.js no existe ahí." >&2
+    exit 1
+  fi
+  echo "→ ya hay una chain en $RPC (chainId $CHAIN_ID_ACTUAL): no levanto otra"
 else
   echo "→ levantando anvil en $RPC"
   anvil --silent & ANVIL_PID=$!

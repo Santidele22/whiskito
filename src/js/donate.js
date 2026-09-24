@@ -21,6 +21,7 @@ import {
   getWalletClient,
   hasWallet,
   onWalletAccountsChange,
+  onWalletChainChange,
   startReadClient,
   switchWalletAccount,
 } from "./chain.js";
@@ -140,6 +141,32 @@ async function onAccountsChanged(accounts) {
   }
 }
 
+/**
+ * La wallet avisa que cambió de RED: la app recalcula con qué red trabaja (lo
+ * hace `chain.js`) y se refresca SIN recargar la página. Es el mismo camino que
+ * un cambio de cuenta: reconectar —que además revalida la red con la wallet— y
+ * repintar la cuenta; el precio, que es de la red activa, se vuelve a leer.
+ */
+async function onChainChanged() {
+  await applyEthPrice();
+  if (!account) return; // sin cuenta conectada no hay nada que reconectar
+  try {
+    const connected = await connectWallet();
+    islands.setDonateViewer(connected);
+    applyRole(connected);
+    // El cartel viejo hablaba de la red vieja: se limpia con la conexión nueva.
+    islands.setDonateStatus("idle", "");
+  } catch (error) {
+    // La wallet quedó en otra red que la de esta página: no hay quién firme, y
+    // se dice (en vez de dejar el botón prometiendo una donación que no sale).
+    islands.setDonateStatus(
+      "error",
+      error?.message ?? "No se pudo seguir el cambio de red"
+    );
+    console.warn("La wallet quedó en otra red:", error?.message ?? error);
+  }
+}
+
 // ── REACCIÓN: la tarjeta pide donar, este módulo responde ────────────
 async function onFundRequest(event) {
   const { amount } = event.detail;
@@ -227,6 +254,23 @@ async function onFundRequest(event) {
   }
 }
 
+/**
+ * El precio ETH→USD de la red ACTIVA, para la tarjeta. Si la chain no contesta
+ * se usa el de ejemplo, con el mismo aviso de siempre. Es una sola pieza
+ * porque la usan el arranque y el cambio de red.
+ */
+async function applyEthPrice() {
+  try {
+    islands.setEthPrice(await readEthPrice());
+  } catch (error) {
+    console.warn(
+      "Sin chain para el precio, se usa el de ejemplo:",
+      error.message
+    );
+    islands.setEthPrice(DEMO_ETH_PRICE);
+  }
+}
+
 // ── ARRANQUE ─────────────────────────────────────────────────────────
 async function bootstrap() {
   // El rol se aplica ANTES de pintar nada: al arrancar no hay cuenta conectada
@@ -251,14 +295,12 @@ async function bootstrap() {
   // Mismo patrón y mismo aviso que `bootstrap()` de `app.js`.
   try {
     startReadClient();
-    islands.setEthPrice(await readEthPrice());
   } catch (error) {
-    console.warn(
-      "Sin chain para el precio, se usa el de ejemplo:",
-      error.message
-    );
-    islands.setEthPrice(DEMO_ETH_PRICE);
+    // Sin cliente de lectura el precio no va a llegar: se dice, y el fallback
+    // de `applyEthPrice()` deja el de ejemplo.
+    console.warn("No se pudo crear el cliente de lectura:", error.message);
   }
+  await applyEthPrice();
 }
 
 // Sólo interesan estos pedidos: no hay navbar ni panel que escuchar. La tarjeta
@@ -270,6 +312,9 @@ islands.onRequest({
   fund: onFundRequest,
 });
 onWalletAccountsChange(onAccountsChanged);
+// Y la RED: si el usuario la cambia en su wallet, la página lo sigue sin
+// recargar (con `?chain=` la URL manda y reconectar vuelve a pedir el cambio).
+onWalletChainChange(onChainChanged);
 bootstrap().catch((error) =>
   console.error("No se pudo inicializar la donación", error)
 );
