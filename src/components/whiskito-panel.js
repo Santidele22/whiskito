@@ -1,5 +1,5 @@
 import { WhiskitoElement } from "./base-element.js";
-import { isOwner } from "../js/viewer-role.js";
+import { isOwner } from "../js/roles/viewer-role.js";
 
 /** Texto por defecto de la retirada, según su estado. */
 const WITHDRAW_LABELS = {

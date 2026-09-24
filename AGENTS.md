@@ -36,30 +36,30 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está pu
 | `src/script/deploy.sol` | deploy **local y nada más** (anvil): `MockV3Aggregator(8, 2000e8)` + `Fund` |
 | `src/script/deploy-amoy.sol` | deploy en **Polygon Amoy**: despliega el `PolUsdAdapter` (POL/USD derivado) y el `Fund` apuntándole — **redeploy pendiente**: la chain todavía tiene el `Fund` con ETH/USD; lo corre `bun run deploy:amoy` = `forge script … --rpc-url amoy --broadcast --account deployer --with-gas-price 35gwei --priority-gas-price 30gwei` (ver §4) |
 | `src/script/pol-usd-adapter.sol` | adaptador `AggregatorV3Interface` que **deriva** POL/USD = LINK/USD ÷ LINK/MATIC con las dos patas reales de Amoy: 8 decimales, `updatedAt` = el mínimo, `maxAge` por constructor, `getRoundData()` revierte |
-| `src/js/main.js` | punto de entrada: registra los componentes y llama a `startApp()`; **sin lógica** |
-| `src/js/app.js` | el flujo: rol del visitante, conectar/desconectar, donar, retirar y el bootstrap |
-| `src/js/islands.js` | **la única frontera con el DOM**: busca las islas **al usarlas** (tolera que falten) y les escribe propiedades |
+| `src/js/entries/main.js` | punto de entrada: registra los componentes y llama a `startApp()`; **sin lógica** |
+| `src/js/entries/app.js` | el flujo: rol del visitante, conectar/desconectar, donar, retirar y el bootstrap |
+| `src/js/dom/islands.js` | **la única frontera con el DOM**: busca las islas **al usarlas** (tolera que falten) y les escribe propiedades |
 | `src/donate.html` | la página que se comparte en `/u/0x…`: **sólo** la tarjeta de donación (y **cobra de verdad**: no hay ningún aviso de demo) |
-| `src/js/donate.js` | el flujo de esa página: destinatario, precio, conectar la wallet y donar |
-| `src/js/tx.js` | **las verificaciones de toda escritura** (ver §2, punto 1) |
-| `src/js/solidity-functions.js` | lecturas (`readContract`, `readEthPrice`, `readDonationHistory`, `readDonations`, `readPortfolio`) y escrituras (`fund`, `withdraw`, `withdrawAll`) |
-| `src/js/chain.js` | clientes: red activa, cliente de lectura HTTP, cliente de wallet |
-| `src/js/viewer-role.js` | rol derivado (`guest`/`donor`/`owner`), `canDonate`, `canWithdraw` |
-| `src/js/demo-mode.js` | módulo hoja: `DEMO`, el modo **de la landing** (default **true**; `?demo=0` o `?real=1` lo apagan). La página del link no lo usa |
-| `src/js/config.js` | módulo hoja: `NETWORKS` por chainId (con `professional` por red), `professionalFor(chainId)`, `DEFAULT_CHAIN_ID` según el origen, `SITE` |
+| `src/js/entries/donate.js` | el flujo de esa página: destinatario, precio, conectar la wallet y donar |
+| `src/js/solidity/tx.js` | **las verificaciones de toda escritura** (ver §2, punto 1) |
+| `src/js/solidity/solidity-functions.js` | lecturas (`readContract`, `readEthPrice`, `readDonationHistory`, `readDonations`, `readPortfolio`) y escrituras (`fund`, `withdraw`, `withdrawAll`) |
+| `src/js/solidity/chain.js` | clientes: red activa, cliente de lectura HTTP, cliente de wallet |
+| `src/js/roles/viewer-role.js` | rol derivado (`guest`/`donor`/`owner`), `canDonate`, `canWithdraw` |
+| `src/js/config/demo-mode.js` | módulo hoja: `DEMO`, el modo **de la landing** (default **true**; `?demo=0` o `?real=1` lo apagan). La página del link no lo usa |
+| `src/js/config/config.js` | módulo hoja: `NETWORKS` por chainId (con `professional` por red), `professionalFor(chainId)`, `DEFAULT_CHAIN_ID` según el origen, `SITE` |
 | `vite.config.js` | Vite: servidor de desarrollo y `bun run build` → `dist/` (bundle sin CDN); raíz `src` |
 | `scripts/dev.sh` | lo que corre `bun run dev`: anvil (si falta), deploy (si falta) y Vite, con limpieza |
 | `src/components/` | 11 web components ("islas"); `base-element.js` es la base |
 | `src/components/whiskito-tx-modal.js` | isla del veredicto de la transacción (aceptada / cancelada); **sólo la página de donación la registra** |
 | `src/components/whiskito-dashboard.js` | isla del modal "Mi Panel": la **tabla de todas las donaciones recibidas** por la cuenta conectada, con las filas que le pasa el flujo (**eventos `Funded` reales de la chain**) |
-| `src/fund.abi.json` | ABI generado por forge — **y una segunda copia a mano** en `src/js/fund-abi.js` |
+| `src/fund.abi.json` | ABI generado por forge — **y una segunda copia a mano** en `src/js/solidity/fund-abi.js` |
 | `.refactor-baseline/` | andamiaje de verificación, **descartable**; incluye anclas congeladas y `serve.py` |
 | `docs/architecture/` | tres diagramas de la app (spec JSON + HTML) generados con **archify**: arquitectura de runtime, secuencia de la donación y flujo de fondos. Describen, no verifican (README §2.1) |
 | `test/PolUsdAdapter.t.sol` | **18 tests de forge** (ya no está vacío): derivación, frescura por pata (`vm.warp`), decimales mixtos, precios 0/negativos, `updatedAt` = mínimo, `getRoundData`, y el piso de `Fund` (`MINIMUM_USD == 1e16`) |
 
 ## 2. Leyes de arquitectura (no romper)
 
-1. **Toda escritura al contrato pasa por `src/js/tx.js`.** El camino es
+1. **Toda escritura al contrato pasa por `src/js/solidity/tx.js`.** El camino es
    `writeAndConfirm({ functionName, args, value })` = simular → firmar → confirmar el recibo.
    Las piezas sueltas (`simulateWrite`, `confirmReceipt`) y las guardas (`requireNetwork`,
    `requireSigningNetwork`, `requirePublicClient`, `requireWalletClient`) viven ahí y **se
@@ -77,7 +77,7 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está pu
    botones; `withdraw`/`withdrawAll` usan `balances[msg.sender]`, así que **nunca** se les pasa
    una dirección como parámetro.
 6. **El modo demo es de la LANDING, no de la app.** El "Acto II" de la landing invita en demo
-   (`src/js/demo-mode.js` exporta `DEMO`, default **`true`**; `?demo=0` y `?real=1` lo apagan) y
+   (`src/js/config/demo-mode.js` exporta `DEMO`, default **`true`**; `?demo=0` y `?real=1` lo apagan) y
    `app.js` se lo pasa a `fund({ …, demo: DEMO })`: ahí **no se firma** —devuelve
    `{ donor, demo: true }` con el retardo simulado— y la tarjeta lo avisa con `get demo` (lo
    prende el flujo con `islands.setDonateDemo`).
@@ -133,7 +133,7 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está pu
    guarda viviera ahí, un desajuste dejaría la página sin datos. Lo verifican `G2a`–`G2k`.
 9. **Identificadores en inglés, describiendo lo que hacen** (`writeAndConfirm`, `simulateWrite`,
    `confirmReceipt`); comentarios y texto de cara al usuario en español.
-10. **El ABI está dos veces** (`src/js/fund-abi.js` a mano y `src/fund.abi.json` de forge): si
+10. **El ABI está dos veces** (`src/js/solidity/fund-abi.js` a mano y `src/fund.abi.json` de forge): si
     cambia el contrato, se actualizan las dos.
 11. **La base de los links que se comparten es el origen que sirve la página** (`SITE`, en
     `config.js`), no un dominio fijo: así el QR de dev abre tu servidor local y la donación se
@@ -160,7 +160,7 @@ export PATH="$HOME/.foundry/bin:$PATH"
 forge fmt --check && forge build --sizes && forge test   # job `check` del CI: dos jobs, ver abajo
 node .refactor-baseline/check-config.mjs        # ¿config.js coincide con el último deploy?
 node .refactor-baseline/verify-refactor/resolve-imports.mjs . src/index.html   # grafo de imports
-for f in src/js/*.js src/components/*.js; do node --check "$f" || echo "FALLA $f"; done  # sintaxis
+for f in $(find src/js src/components -type f -name '*.js' | sort); do node --check "$f" || echo "FALLA $f"; done  # sintaxis (recursivo)
 python3 .refactor-baseline/verify-refactor/run-harness.py 8899   # e2e: exit 0 si PASS
 python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la página del link
 ```
@@ -259,7 +259,7 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
 - **Un comentario con backticks adentro de `static template` / `static styles` cierra el template
   literal**: el módulo queda con error de sintaxis, `components/index.js` no registra **ninguna**
   isla y el harness falla con `card is null` (o con módulos que la página nunca baja), que se
-  parece a un problema de carga y es un typo. `node --check src/js/*.js src/components/*.js`
+  parece a un problema de carga y es un typo. `for f in $(find src/js src/components -type f -name '*.js' | sort); do node --check "$f"; done`
   (el paquete es `type: module`) lo caza en un segundo: corrélo antes de la puerta.
 - **El perfil de Firefox conserva `localStorage` entre corridas**: una aserción del tipo "no
   quedó nada guardado" tiene que **limpiar la clave antes**, o el dato que dejó una versión
@@ -274,7 +274,7 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
 - **`grep -v` puede matchear la RUTA y no el contenido**: un barrido de marca que filtra por el
   nombre del archivo da "limpio" sin haber mirado nada.
 - **Importar el barril de Lucide** (`import { createIcons } from 'lucide'`) dispara ~1850
-  peticiones: se importa icono por icono (`src/js/icons.js`) y se hidrata con `replaceElement`
+  peticiones: se importa icono por icono (`src/js/dom/icons.js`) y se hidrata con `replaceElement`
   sobre el `root` del componente.
 - **`.refactor-baseline/` no es un lugar seguro para artefactos únicos**: ya desaparecieron
   archivos por actividad concurrente en el workspace. Lo congelado que importa está versionado

@@ -28,8 +28,8 @@ const LUCIDE_ESM = fileURLToPath(
  * donante, y esa página es OTRA que la landing: la tarjeta sola, centrada.
  *
  * **Redirige, no reescribe**, y no es un detalle: en dev Vite deja las rutas de
- * los assets del HTML **relativas** (`./js/donate.js`, `styles.css`). Si la
- * página se sirviera *en* `/u/0x…`, el navegador pediría `/u/js/donate.js` y el
+ * los assets del HTML **relativas** (`./js/entries/donate.js`, `styles.css`). Si la
+ * página se sirviera *en* `/u/0x…`, el navegador pediría `/u/js/entries/donate.js` y el
  * fallback de SPA le devolvería el HTML con un 200: el módulo no carga, la
  * tarjeta nunca se registra y la página queda muerta sin un solo error visible.
  * Con el redirect el documento vive en `/donate.html`, donde las rutas
@@ -71,10 +71,67 @@ function sharedLinkRoute() {
   };
 }
 
+/**
+ * Sirve la página del historial en la ruta `/historial` (con o sin la dirección
+ * atrás).
+ *
+ * Es el mismo caso que `sharedLinkRoute` —una página APARTE (`historial.html`)
+ * servida en una ruta que no es la del archivo— y por eso usa el MISMO
+ * mecanismo, con el mismo razonamiento: **redirige, no reescribe**. En dev Vite
+ * deja las rutas de los assets del HTML relativas (`./js/entries/historial.js`,
+ * `styles.css`), así que si la página se sirviera *en* `/historial` el navegador
+ * pediría `/historial/js/entries/historial.js`, el fallback de SPA devolvería el HTML
+ * con un 200 y la página quedaría muerta sin un solo error visible. Con el
+ * redirect el documento vive en `/historial.html`, donde las rutas relativas
+ * resuelven bien.
+ *
+ * La dirección puede venir en el query (`?u=0x…`, que es lo que conserva este
+ * redirect) o en la ruta (`/historial/0x…`). En el segundo caso la ruta NO se
+ * puede conservar —ahí no habría dónde resolver los assets relativos—, así que
+ * la dirección se muda al query: `resolvePageOwner` entiende las dos formas y
+ * con eso el flujo recibe la misma dirección por el camino de siempre.
+ */
+function historyRoute() {
+  // `/historial`, `/historial/` y `/historial/<40 hex>`, con barra final
+  // opcional y el hex en cualquier caso.
+  const HISTORY = /^\/historial(?:\/(0x[0-9a-fA-F]{40}))?\/?$/;
+
+  /** Manda la ruta del historial a su página; el resto pasa igual. */
+  const redirectHistory = () => (req, res, next) => {
+    // `req.url` es ruta + query (no una URL absoluta): el base la completa.
+    const url = new URL(req.url, "http://localhost");
+    const match = url.pathname.match(HISTORY);
+    if (!match) return next();
+    url.pathname = "/historial.html";
+    // La dirección de la ruta se conserva en el query (y si ya venía un `?u=`,
+    // ese gana: es el parámetro explícito). Los otros parámetros (`?chain=…`,
+    // `?rpc=…`) viajan igual: la app los usa para apuntar a otra red o a otro
+    // nodo.
+    if (match[1] && !url.searchParams.has("u")) {
+      url.searchParams.set("u", match[1]);
+    }
+    res.writeHead(302, { Location: url.pathname + url.search });
+    res.end();
+  };
+
+  return {
+    name: "whiskito:history-route",
+    // `server.middlewares.use(...)` DENTRO del hook es lo que corre antes de los
+    // middlewares internos de Vite; devolver la función también los agregaría,
+    // pero DESPUÉS, y para entonces el fallback de SPA ya habría contestado.
+    configureServer(server) {
+      server.middlewares.use(redirectHistory());
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(redirectHistory());
+    },
+  };
+}
+
 export default defineConfig({
-  // Ver `sharedLinkRoute`: la ruta compartida tiene que servir la página de
-  // donación, no la landing.
-  plugins: [sharedLinkRoute()],
+  // Ver `sharedLinkRoute` y `historyRoute`: las rutas compartidas/lindas tienen
+  // que servir su propia página, no la landing.
+  plugins: [sharedLinkRoute(), historyRoute()],
   // La raíz es `src/` (donde vive `index.html`), no el repo: así el build sale
   // como `dist/index.html` limpio, sin el prefijo `src/`, y `vite build` no
   // escanea los `.html` del andamiaje de verificación (`.refactor-baseline/`).
@@ -101,16 +158,16 @@ export default defineConfig({
       // especificadores que resuelve el importmap del navegador. Vite los
       // resuelve con resolución de Node, y el paquete `lucide` no publica
       // `exports` ni una carpeta `icons/` en su raíz (los archivos viven en
-      // `dist/esm/`), así que sin este alias el módulo `src/js/icons.js` no
+      // `dist/esm/`), así que sin este alias el módulo `src/js/dom/icons.js` no
       // carga ni en dev ni en build.
       { find: /^lucide\//, replacement: `${LUCIDE_ESM}/` },
     ],
   },
   optimizeDeps: {
     // Sin esto, el escaneo de dependencias mira TODOS los `.html` del repo
-    // (incluidos los del andamiaje de verificación). Las dos páginas entran: la
-    // de donación también usa viem y lucide.
-    entries: ["index.html", "donate.html"],
+    // (incluidos los del andamiaje de verificación). Las tres páginas entran:
+    // la de donación y la del historial también usan viem y lucide.
+    entries: ["index.html", "donate.html", "historial.html"],
   },
   server: {
     port: 5173,
@@ -128,12 +185,14 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: true,
     rollupOptions: {
-      // Dos entradas: la landing y la página de donación (la que se comparte en
-      // `/u/0x…`). Sin la segunda, el build no emitiría `dist/donate.html` y el
-      // link compartido caería en la landing publicada.
+      // Tres entradas: la landing, la página de donación (la que se comparte en
+      // `/u/0x…`) y la del historial (`/historial`). Sin las otras dos, el build
+      // no emitiría `dist/donate.html` ni `dist/historial.html` y esas rutas
+      // caerían en la landing publicada.
       input: {
         index: "index.html",
         donate: "donate.html",
+        historial: "historial.html",
       },
     },
   },

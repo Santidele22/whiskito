@@ -81,7 +81,7 @@ export function networkConfig(chainId) {
   const network = NETWORKS[Number(chainId)];
   if (!network) {
     throw new Error(
-      `No hay configuración para la red ${chainId}. Agregala en src/js/config.js (NETWORKS).`
+      `No hay configuración para la red ${chainId}. Agregala en src/js/config/config.js (NETWORKS).`
     );
   }
   return { ...network, chainId: Number(chainId) };

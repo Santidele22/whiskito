@@ -1,6 +1,8 @@
-import * as islands from "./islands.js";
+import * as islands from "../dom/islands.js";
 
-import { professionalFor, SITE } from "./config.js";
+import { currentView, VIEW, showView } from "../../pages/index.js";
+
+import { professionalFor, SITE } from "../config/config.js";
 
 import {
   VIEWER_ROLE,
@@ -9,11 +11,11 @@ import {
   resolveEffectiveOwner,
   resolvePageOwner,
   resolveViewerRole,
-} from "./viewer-role.js";
+} from "../roles/viewer-role.js";
 
-import { DEMO_ETH_PRICE, PREVIEW } from "./constants.js";
+import { DEMO_ETH_PRICE, PREVIEW } from "../config/constants.js";
 
-import { DEMO } from "./demo-mode.js";
+import { DEMO } from "../config/demo-mode.js";
 
 import {
   connectWallet,
@@ -23,10 +25,11 @@ import {
   hasWallet,
   onWalletAccountsChange,
   onWalletChainChange,
+  restoreWallet,
   revokeWalletPermissions,
   startReadClient,
   switchWalletAccount,
-} from "./chain.js";
+} from "../solidity/chain.js";
 
 import {
   fund,
@@ -36,15 +39,15 @@ import {
   readPortfolio,
   withdraw,
   withdrawAll,
-} from "./solidity-functions.js";
+} from "../solidity/solidity-functions.js";
 
 // ── VIEWER ROLE ──────────────────────────────────────────────────────
 const pageOwnerFromUrl = resolvePageOwner();
 let account = "";
 let role = VIEWER_ROLE.GUEST;
 let pageOwner = pageOwnerFromUrl;
-/** ¿Está abierto "Mi Panel"? Se sigue acá porque el modal se cierra solo. */
-let dashboardOpen = false;
+/** Última lectura del historial inline pedida (para descartar una vieja). */
+let proHistoryRead = 0;
 
 function applyRole() {
   pageOwner = resolveEffectiveOwner({
@@ -58,6 +61,139 @@ function applyRole() {
   const landingWithoutOwner = !pageOwnerFromUrl;
   islands.setShareAddress(isOwner ? pageOwner ?? "" : "");
   islands.setShareVisible(isOwner || landingWithoutOwner);
+  applyView();
+}
+
+/**
+ * La vista de la PÁGINA: la landing conectada es la del profesional, todo lo
+ * demás es la del visitante.
+ *
+ * Ojo con el disparador, que NO es el rol aunque casi siempre coincida. El rol
+ * también es `owner` cuando la URL nombra al dueño (`/u/0x…`, el link que se
+ * comparte) y esa cuenta conecta; ahí la página se queda en la del visitante, y
+ * ése es justamente el caso que mantiene viva la ley §2.12: el dueño que abre su
+ * propio link sigue pudiendo probar la donación en demo desde la tarjeta, que la
+ * vista del profesional esconde. Lo que enciende la vista del profesional es la
+ * LANDING sin dueño en la URL: el flujo "conectá tu wallet y empezá a recibir".
+ *
+ * Corre desde `applyRole()` porque ése ya es el único lugar que se ejecuta en
+ * TODAS las entradas —arranque, conexión, cambio de cuenta, cambio de red y
+ * desconexión—, así que el rol y la vista no pueden discrepar.
+ */
+function applyView() {
+  const professional = Boolean(account) && !pageOwnerFromUrl;
+  showView(professional ? VIEW.PROFESIONAL : VIEW.VISITOR, {
+    // Sin dueño en la URL, el dueño efectivo de la página es la cuenta que
+    // conecta: es su dirección la que el historial tiene que mostrar.
+    address: professional ? account : "",
+    base: SITE,
+  });
+  // La tabla del historial de la vista del profesional se llena con la chain:
+  // el router ya montó las islas (arriba), así que acá sólo se piden los datos.
+  if (professional) {
+    // Se dispara sin `await` a propósito: `applyView()` corre en el camino
+    // síncrono de la conexión y la lectura es HTTP contra el RPC (no puede
+    // bloquear el pintado de la vista). `loadProHistory` atrapa lo suyo.
+    loadProHistory(account).catch((error) =>
+      console.warn(
+        "No se pudo leer el historial del profesional:",
+        error?.message ?? error
+      )
+    );
+  }
+}
+
+/**
+ * La tabla del historial INLINE de la vista del profesional: las donaciones que
+ * recibió la CUENTA CONECTADA (es el dueño de la página el que mira su propia
+ * barra; hoy es el único lugar donde el profesional retira, y comparte
+ * `readDonationHistory` con la página `/historial`).
+ *
+ * Por qué se acepta el costo de una lectura de eventos por ventanas de 5.000
+ * bloques al ENCENDER la vista: es el pedido que ya hacía la página `/historial`,
+ * sólo que adelantado para que el historial esté a la vista sin un click de
+ * más. No se repite por temporizador ni por cada pintado: sólo
+ * cuando la vista se enciende (conexión, cambio de cuenta o de red), y el bucle
+ * de `readDonationHistory` corta al juntar `limit` eventos o al llegar al bloque
+ * del deploy —así que en una barra con donaciones es UN pedido, y sin ninguna,
+ * uno por cada 5.000 bloques de vida del contrato.
+ *
+ * NO refresca por retiro: retirar devuelve el saldo, no borra los eventos
+ * `Funded`, así que el historial no cambia. Lo que sí cambia es el saldo, y para
+ * eso está `refreshProBalance()` —que el retiro exitoso llama—.
+ */
+async function loadProHistory(address) {
+  // Un solo lector a la vez: si la vista se vuelve a encender mientras una
+  // lectura está en vuelo (cambio de cuenta rápido), la vieja no puede pintar
+  // encima de la nueva.
+  const token = ++proHistoryRead;
+  islands.showHistory({ address, rows: [], loading: true, connect: false });
+  // El saldo va en paralelo con las filas: es la misma foto de la cuenta, y si
+  // el precio (un adorno) falla, la tabla igual sirve. Se dispara sin `await`.
+  refreshProBalance(address).catch(() => {});
+  try {
+    // Mismo `limit` por defecto que la tabla de la página `/historial` (200): no
+    // se inventa otro tope.
+    const rows = await readDonationHistory(address);
+    if (token !== proHistoryRead) return;
+    islands.showHistory({
+      address,
+      rows,
+      // El explorador de la red ACTIVA: en anvil es `null` y la columna de la
+      // transacción no se dibuja, igual que en `/historial`.
+      explorer: getActiveNetwork()?.explorer ?? "",
+      loading: false,
+      connect: false,
+      // La tabla es donde el profesional retira: es el único lugar de esta vista
+      // que ofrece el retiro (el panel del backstage está oculto, y el modal "Mi
+      // Panel" ya no existe). Sin este permiso la isla no dibuja ni el saldo ni
+      // los botones.
+      canWithdraw: canWithdraw(role),
+    });
+  } catch (error) {
+    if (token !== proHistoryRead) return;
+    // Nunca una tabla vacía muda: se dice, y se dice como aviso (no como "no
+    // recibiste nada"). `connect: false`: acá ya hay una cuenta leída, y un
+    // error de la chain no se arregla conectando la wallet.
+    islands.showHistory({
+      address,
+      rows: [],
+      message: "No pudimos leer tus donaciones de la chain",
+      loading: false,
+      connect: false,
+      canWithdraw: canWithdraw(role),
+    });
+    console.warn(
+      "No se pudo leer el historial del profesional:",
+      error?.message ?? error
+    );
+  }
+}
+
+/**
+ * El saldo disponible de la cuenta conectada, a la tabla del historial.
+ *
+ * Existe aparte de `loadProHistory` porque el saldo es lo ÚNICO que cambia con un
+ * retiro: las filas son eventos `Funded`, que no se borran. Después de retirar se
+ * llama a esto y no a la lectura de eventos, así la tabla no queda mintiendo con
+ * el saldo de antes sin pagar el costo de releer la historia entera.
+ *
+ * El equivalente en dólares es un adorno: si el precio no está, el retiro igual
+ * se mide en POL (el mismo criterio de siempre).
+ */
+async function refreshProBalance(address = account) {
+  if (!address) return;
+  const balanceEth = await readBalance(address);
+  let balanceUsd = "0.00";
+  try {
+    balanceUsd = (Number(balanceEth) * (await readEthPrice())).toFixed(2);
+  } catch (error) {
+    console.warn(
+      "Sin precio para el equivalente en dólares:",
+      error?.message ?? error
+    );
+  }
+  islands.setHistoryBalance(balanceEth, balanceUsd);
 }
 
 /**
@@ -68,18 +204,6 @@ function applyRole() {
 async function readPagePortfolio() {
   if (!pageOwner) return PREVIEW;
   return readPortfolio(pageOwner);
-}
-
-/**
- * Cierra "Mi Panel" y lo recuerda. Cubre las tres vías de cierre de la isla (la
- * ×, Escape y el fondo, que llegan como `whiskito:dashboard-close`) y las que
- * decide este flujo (desconectar, cambiar de cuenta). Sin este dato, un refresco
- * después de un retiro volvería a abrir un modal que el usuario ya había
- * cerrado.
- */
-function closeDashboard() {
-  dashboardOpen = false;
-  islands.hideDashboard();
 }
 
 // ── REACCIONES: la isla avisa, app.js responde ───────────────────────
@@ -103,8 +227,6 @@ async function showConnectedAccount(address) {
   account = address;
   islands.setNavbarAccount(address);
   islands.setConnectionState("connected");
-  // El panel de la cuenta anterior (si estaba abierto) ya no describe a ésta.
-  closeDashboard();
   applyRole();
   // Sólo si es el dueño tiene sentido abrirle su QR para compartir.
   if (role === VIEWER_ROLE.OWNER) islands.setShareOpen(true);
@@ -155,7 +277,6 @@ async function onAccountsChanged(accounts) {
     islands.setNavbarAccount("");
     islands.setConnectionState("disconnected");
     islands.setShareOpen(false);
-    closeDashboard();
     applyRole();
     // Desconectado: el cartel de la donación anterior ya no corresponde.
     islands.setDonateStatus("idle", "");
@@ -222,7 +343,6 @@ async function onDisconnectRequest() {
   islands.setNavbarAccount("");
   islands.setConnectionState("disconnected");
   islands.setShareOpen(false);
-  closeDashboard();
   applyRole();
   // Sin wallet sigue siendo público: se vuelve a leer el panel de la página.
   try {
@@ -249,11 +369,17 @@ async function onWithdrawRequest(event) {
   try {
     await (amount === null ? withdrawAll() : withdraw(amount));
     islands.setWithdrawStatus("success", "¡Retirado!");
-    // La chain es la verdad: se relee el panel de LA PÁGINA y, si el modal está
-    // abierto, también sus datos —si no, el modal seguiría mostrando el saldo
-    // de antes del retiro (y con él un botón que ya no corresponde)—.
+    // La chain es la verdad: se relee el panel de LA PÁGINA y el saldo de la
+    // tabla del profesional —si es la vista que está puesta—. Lo segundo es lo
+    // que el flujo hacía con el modal "Mi Panel" cuando existía: sin eso, la
+    // tabla seguiría mostrando el saldo de antes del retiro (y con él unos
+    // botones que ya no corresponden).
+    // Lo que NO se relee es el historial de la tabla: son eventos `Funded`, que
+    // un retiro no toca.
     islands.showPortfolio(await readPagePortfolio());
-    if (dashboardOpen) await loadDashboard();
+    if (currentView() === VIEW.PROFESIONAL) {
+      await refreshProBalance(account);
+    }
   } catch (error) {
     islands.setWithdrawStatus(
       "error",
@@ -305,74 +431,6 @@ async function onFundRequest(event) {
 }
 
 /**
- * "Mi Panel" (el botón del navbar): la tabla con TODAS las donaciones que
- * recibió la cuenta conectada, más su balance disponible y si puede retirar.
- *
- * Las filas son **reales**: se leen de la chain (los eventos `Funded` de esa
- * dirección). La demo no deja filas acá, porque no movió nada. Es a propósito la
- * cuenta conectada y no la dueña de la página: el botón vive en MI navbar, así
- * que muestra lo mío.
- *
- * Es reutilizable a propósito: la llama el pedido del navbar y TAMBIÉN el retiro
- * exitoso (`onWithdrawRequest`), para que el modal abierto no siga mostrando el
- * balance de antes.
- */
-async function loadDashboard() {
-  if (!account) return;
-  try {
-    // Las dos lecturas van juntas: la tabla y el balance son la misma foto.
-    const [balanceEth, donations] = await Promise.all([
-      readBalance(account),
-      readDonationHistory(account),
-    ]);
-    // El equivalente en dólares es un adorno: si el precio no está, el modal
-    // igual sirve (el retiro se mide en ETH, no en USD).
-    let balanceUsd = "0.00";
-    try {
-      balanceUsd = (Number(balanceEth) * (await readEthPrice())).toFixed(2);
-    } catch (error) {
-      console.warn(
-        "Sin precio para el equivalente en dólares:",
-        error?.message ?? error
-      );
-    }
-    islands.showDashboard({
-      address: account,
-      donations,
-      balanceEth,
-      balanceUsd,
-      canWithdraw: canWithdraw(role),
-    });
-    dashboardOpen = true;
-  } catch (error) {
-    // Sin chain no hay historia. Se dice, en vez de mostrar una tabla vacía que
-    // se leería como "no recibiste nada". Sin balance leído tampoco hay retiro
-    // que ofrecer: los botones quedan apagados (el default de la isla es `0`).
-    islands.showDashboard({
-      address: account,
-      donations: [],
-      message: "No pudimos leer tus donaciones de la chain",
-      canWithdraw: canWithdraw(role),
-    });
-    dashboardOpen = true;
-    console.warn(
-      "No se pudo leer la historia de donaciones:",
-      error?.message ?? error
-    );
-  }
-}
-
-/** El pedido del navbar: cargar (y abrir) "Mi Panel". */
-async function onDashboardRequest() {
-  await loadDashboard();
-}
-
-/** La isla avisa que el modal se cerró (× , Escape o el fondo). */
-function onDashboardClose() {
-  dashboardOpen = false;
-}
-
-/**
  * El precio ETH→USD de la red ACTIVA, para la tarjeta de donación. Si la chain
  * no contesta se usa el de ejemplo, con el mismo aviso de siempre. Es una sola
  * pieza porque la usan el arranque y el cambio de red.
@@ -419,6 +477,31 @@ async function bootstrap() {
   } catch (error) {
     islands.showPortfolio(PREVIEW);
   }
+  // ── Reconexión silenciosa, AL FINAL del arranque ─────────────────────
+  // Si la wallet ya autorizó este sitio, `restoreWallet()` devuelve la cuenta
+  // (por `eth_accounts`, sin abrir ningún prompt) y la app se pinta como
+  // conectada por el MISMO camino que una conexión real: `showConnectedAccount`.
+  // Así, navegar de otra página a la landing no "desloguea".
+  //
+  // Va después de `applyRole()` y del resto del arranque —y no antes— por dos
+  // razones: (1) si no hay cuenta autorizada no cambia NADA de lo que la
+  // landing hace hoy (el orden y las lecturas de arriba quedan intactos: son
+  // los que verifican las aserciones del arranque), y (2) el estado conectado
+  // se pinta sobre una página ya armada, con `showConnectedAccount` haciendo
+  // su propio `applyRole()` y su propia lectura del panel, igual que si el
+  // usuario hubiera apretado "Conectar Wallet".
+  //
+  // Nunca puede romper el arranque: si lanza (una wallet que no se mueve de
+  // red, una wallet rara), se atrapa y se sigue con la landing desconectada.
+  try {
+    const restored = await restoreWallet();
+    if (restored) await showConnectedAccount(restored);
+  } catch (error) {
+    console.warn(
+      "No se pudo reconectar la wallet al cargar:",
+      error?.message ?? error
+    );
+  }
 }
 
 /** Registra los listeners de las islas y arranca el arranque. */
@@ -429,8 +512,6 @@ export function startApp() {
     switchAccount: onSwitchAccountRequest,
     withdraw: onWithdrawRequest,
     fund: onFundRequest,
-    dashboard: onDashboardRequest,
-    dashboardClose: onDashboardClose,
   });
 
   // La wallet avisa cuando el usuario cambia de cuenta por su cuenta: la app lo

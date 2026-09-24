@@ -17,6 +17,18 @@ export function setNavbarAccount(address) {
   navbar.account = address;
 }
 
+/**
+ * El navbar de una página APARTE (`/historial`): con la base del sitio, sus
+ * cuatro links apuntan a la landing con su ancla y aparece el control de volver
+ * al inicio. Sin llamarlo —o con `""`— el navbar queda en su modo de siempre, el
+ * de la landing.
+ */
+export function setNavbarBase(base) {
+  const navbar = findIsland("whiskito-navbar");
+  if (!navbar) return;
+  navbar.base = base ?? "";
+}
+
 /** El panel: de quién es la página y quién mira (la isla deriva isOwner / notOwner). */
 export function setPanelViewer({ owner, viewer }) {
   const panel = findIsland("whiskito-panel");
@@ -36,12 +48,16 @@ export function showPortfolio({ balanceEth, balanceUsd, donations }) {
 /**
  * Estado de la retirada; el mensaje sólo se pisa si viene uno.
  *
- * El veredicto es uno solo y hay DOS islas que retiran (el panel y el modal "Mi
- * Panel"), así que se escribe en las dos: si el retiro salió del modal, el panel
- * de atrás también tiene que dejar de mentir.
+ * El veredicto es uno solo y hay DOS islas que retiran (el panel y la tabla del
+ * historial de la vista del profesional), así que se escribe en las dos: si el
+ * retiro salió de la tabla, el panel de atrás también tiene que dejar de mentir
+ * —y al revés—. Una sola verdad para dos islas.
  */
 export function setWithdrawStatus(status, message) {
-  for (const island of [findIsland("whiskito-panel"), findIsland("whiskito-dashboard")]) {
+  for (const island of [
+    findIsland("whiskito-panel"),
+    findIsland("whiskito-history-table"),
+  ]) {
     if (!island) continue;
     island.withdrawStatus = status;
     if (message !== undefined) island.withdrawMessage = message;
@@ -166,39 +182,79 @@ export function hideTxModal() {
 }
 
 /**
- * Abre "Mi Panel" con TODO lo que muestra: la dirección, sus donaciones, el
- * aviso de lectura, el balance de la cuenta conectada (ETH y USD) y si esa
- * cuenta puede retirar.
+ * El saludo de la vista del profesional (`whiskito-pro-greeting`): de quién es
+ * la barra. Vacío = sin cuenta, y entonces la isla muestra el saludo sin la
+ * línea de la dirección (no se inventan datos).
  *
- * Los que no vengan usan el mismo criterio de default de siempre: vacío para la
- * dirección y el aviso, lista vacía para las donaciones, y —como el panel— `0` /
- * `0.00` para un balance que nadie leyó. `canWithdraw` es opt-in: sin que nadie
- * lo autorice, la isla no ofrece retirar.
+ * La tabla de abajo se llena con `showHistory`, la misma función que usa la
+ * página `/historial`: las dos islas del profesional son las mismas piezas en
+ * otro contexto.
  */
-export function showDashboard({
+export function setGreetingAddress(address) {
+  const greeting = findIsland("whiskito-pro-greeting");
+  if (!greeting) return;
+  greeting.address = address ?? "";
+}
+
+/**
+ * La página del historial (`/historial?u=0x…`): la tabla completa de las
+ * donaciones recibidas por una dirección.
+ *
+ * Mismos defaults tolerantes que el resto —lo que no venga queda vacío— y
+ * `loading` / `connect` / `canWithdraw` son opt-in: los tres arrancan apagados
+ * en la isla. `connect` es el permiso para ofrecer el botón de conectar la
+ * wallet, que es la única salida cuando la URL no trae dirección (leer es
+ * público, así que la página sirve igual; lo que no hay es a quién leerle).
+ * `canWithdraw` es el permiso para OFRECER el retiro: sin él la isla no dibuja
+ * ni el saldo ni los botones, así que `/historial` —que no lo prende— sigue
+ * siendo una página de lectura y sólo la vista del profesional retira desde acá.
+ *
+ * `balanceEth` / `balanceUsd` son el saldo disponible del dueño (el mismo dato y
+ * el mismo formato que el panel): sólo se pintan con `canWithdraw` prendido.
+ *
+ * La usa la página `/historial` y también la landing: la vista del profesional
+ * monta esa misma tabla INLINE, con las donaciones de la cuenta conectada.
+ */
+export function showHistory({
   address,
-  donations,
+  rows,
   message,
+  explorer,
+  loading,
+  connect,
   balanceEth,
   balanceUsd,
   canWithdraw,
 } = {}) {
-  const dashboard = findIsland("whiskito-dashboard");
-  if (!dashboard) return;
-  dashboard.address = address ?? "";
-  dashboard.donations = Array.isArray(donations) ? donations : [];
-  dashboard.message = message ?? "";
-  dashboard.balanceEth = balanceEth ?? "0";
-  dashboard.balanceUsd = balanceUsd ?? "0.00";
-  dashboard.canWithdraw = Boolean(canWithdraw);
-  dashboard.open = true;
+  const table = findIsland("whiskito-history-table");
+  if (!table) return;
+  table.address = address ?? "";
+  table.rows = Array.isArray(rows) ? rows : [];
+  table.message = message ?? "";
+  table.explorer = explorer ?? "";
+  table.loading = Boolean(loading);
+  table.connect = Boolean(connect);
+  // El saldo y el permiso de retirar son la misma foto que las filas: van acá y
+  // no en una función aparte sólo para el caso "sólo cambió el saldo" —para eso
+  // está `setHistoryBalance`, que no toca las filas—.
+  if (balanceEth !== undefined) table.balanceEth = balanceEth;
+  if (balanceUsd !== undefined) table.balanceUsd = balanceUsd;
+  if (canWithdraw !== undefined) table.canWithdraw = Boolean(canWithdraw);
 }
 
-/** Cierra el panel si esta página lo tiene (si no, no hace nada). */
-export function hideDashboard() {
-  const dashboard = findIsland("whiskito-dashboard");
-  if (!dashboard) return;
-  dashboard.open = false;
+/**
+ * Sólo el saldo disponible de la tabla del historial: las filas (las donaciones
+ * recibidas) no cambian con un retiro, así que repintarlas sería rehacer una
+ * lectura de eventos para nada. Lo usa el retiro exitoso, que es exactamente
+ * cuando el saldo que se ve queda viejo.
+ *
+ * Mismo default tolerante que `showHistory` para lo que no venga.
+ */
+export function setHistoryBalance(balanceEth, balanceUsd) {
+  const table = findIsland("whiskito-history-table");
+  if (!table) return;
+  if (balanceEth !== undefined) table.balanceEth = balanceEth;
+  if (balanceUsd !== undefined) table.balanceUsd = balanceUsd;
 }
 
 /**
@@ -227,8 +283,6 @@ export function onRequest({
   switchAccount,
   withdraw,
   fund,
-  dashboard,
-  dashboardClose,
 } = {}) {
   if (connect) document.addEventListener("whiskito:connect-request", connect);
   if (disconnect)
@@ -237,13 +291,6 @@ export function onRequest({
     document.addEventListener("whiskito:switch-account-request", switchAccount);
   if (withdraw)
     document.addEventListener("whiskito:withdraw-request", withdraw);
-  if (dashboard)
-    document.addEventListener("whiskito:dashboard-request", dashboard);
-  // "Mi Panel" también avisa cuando se CIERRA (la ×, Escape o el fondo): el
-  // flujo necesita saberlo para no reabrirlo al refrescar sus datos después de
-  // un retiro.
-  if (dashboardClose)
-    document.addEventListener("whiskito:dashboard-close", dashboardClose);
   const donateCard = findIsland("whiskito-donate-card");
   if (fund && donateCard) {
     donateCard.addEventListener("whiskito:fund-request", fund);

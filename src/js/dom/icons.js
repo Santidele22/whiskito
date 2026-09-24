@@ -32,8 +32,9 @@ import Square from "lucide/icons/square.mjs";
 import Volume2 from "lucide/icons/volume-2.mjs";
 import VolumeX from "lucide/icons/volume-x.mjs";
 import X from "lucide/icons/x.mjs";
-import Receipt from "lucide/icons/receipt.mjs";
 import FlaskConical from "lucide/icons/flask-conical.mjs";
+// El control de volver al inicio del navbar (`base`, fuera de la landing).
+import ArrowLeft from "lucide/icons/arrow-left.mjs";
 
 export const ICONS = {
   GlassWater,
@@ -68,8 +69,8 @@ export const ICONS = {
   Volume2,
   VolumeX,
   X,
-  Receipt,
   FlaskConical,
+  ArrowLeft,
 };
 
 /**

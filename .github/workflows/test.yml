@@ -54,7 +54,11 @@ jobs:
         # comentario de `static template`/`static styles` cierra el template literal,
         # el módulo no carga, `components/index.js` no registra ninguna isla y el
         # harness falla con "card is null", que parece un problema de carga.
-        run: for f in src/js/*.js src/components/*.js; do node --check "$f" || exit 1; done
+        #
+        # El barrido es RECURSIVO a propósito: los módulos viven en subcarpetas de
+        # `src/js/` (entries/, solidity/, config/, dom/, utils/, roles/), y un glob
+        # de un solo nivel dejaría de verlos sin que el paso fallara.
+        run: for f in $(find src/js src/components -type f -name '*.js' | sort); do node --check "$f" || exit 1; done
 
       - name: Check import graph
         run: node .refactor-baseline/verify-refactor/resolve-imports.mjs . src/index.html
@@ -144,7 +148,7 @@ jobs:
         # http://127.0.0.1:8545 --broadcast --unlocked --sender 0xf39f…2266`, la
         # cuenta 0 de anvil (la de `professionalFor(31337)`).
         #
-        # La address NO se escribe a mano acá: se lee del propio `src/js/config.js`,
+        # La address NO se escribe a mano acá: se lee del propio `src/js/config/config.js`,
         # que es exactamente lo que el harness va a usar. Un deploy que "sale bien"
         # sin desplegar nada (firmante implícito de Foundry, AGENTS.md §4) deja
         # `cast code` en `0x` y este paso lo caza.
@@ -153,7 +157,7 @@ jobs:
           # Se extrae por NOMBRE de campo y no por posición: la entrada también tiene
           # `professional`, que es otra address, y un `tail -1` agarraba ésa (sin
           # código en la chain) en vez del oráculo.
-          ENTRADA="$(sed -n '/^  31337: {/,/^  },/p' src/js/config.js)"
+          ENTRADA="$(sed -n '/^  31337: {/,/^  },/p' src/js/config/config.js)"
           FUND="$(printf '%s\n' "$ENTRADA" | sed -n 's/.*[[:space:]]fund: *"\(0x[0-9a-fA-F]\{40\}\)".*/\1/p')"
           FEED="$(printf '%s\n' "$ENTRADA" | sed -n 's/.*priceFeed: *"\(0x[0-9a-fA-F]\{40\}\)".*/\1/p')"
           if [ -z "$FUND" ] || [ -z "$FEED" ]; then

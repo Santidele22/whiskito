@@ -1,7 +1,8 @@
 # CI (`.github/workflows/test.yml`) — dos jobs. El contexto del proyecto está en `AGENTS.md`.
 - **`check`** — sin nada vivo: `forge fmt --check`, `forge build --sizes`, `forge test -vvv`
-  (18 tests en `test/PolUsdAdapter.t.sol`: la derivación POL/USD y el piso de `Fund`), `node --check` sobre `src/js/*.js` y
-  `src/components/*.js`, `resolve-imports.mjs`, `check-config.mjs` contra el `broadcast/` de Amoy
+  (18 tests en `test/PolUsdAdapter.t.sol`: la derivación POL/USD y el piso de `Fund`), `node --check` recursivo sobre
+  los `*.js` de `src/js/` (los módulos viven en subcarpetas: `entries/`, `solidity/`, `config/`, `dom/`, `utils/`,
+  `roles/`) y `src/components/*.js`, `resolve-imports.mjs`, `check-config.mjs` contra el `broadcast/` de Amoy
   versionado y `bun run build` (el bundle que publica Vercel).
 - **`e2e`** — la puerta de verdad: `run-harness.py` y después `run-donate-probe.py`, en Firefox
   headless y secuenciales (comparten chain y saldos); el job falla si alguno no dice

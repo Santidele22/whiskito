@@ -1,5 +1,5 @@
 import { WhiskitoElement } from "./base-element.js";
-import { shortAddress } from "../js/format.js";
+import { shortAddress } from "../js/utils/format.js";
 
 const STATUS_TEXT = {
   pending: "Procesando transacción...",

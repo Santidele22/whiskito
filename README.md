@@ -11,7 +11,7 @@ renombre alcanzó a los web components (`whiskito-*`), a sus clases y a los even
 > real. En desarrollo corre contra **anvil** (`chainId 31337`) y la red publicada es **Polygon
 > Amoy** (`chainId 80002`), que es donde se despliega el contrato (§6.1). **Sepolia es otra red**
 > (Ethereum, `chainId 11155111`) y sigue prevista pero no desplegada: su entrada está comentada en
-> `src/js/config.js` y no se confunde con Amoy.
+> `src/js/config/config.js` y no se confunde con Amoy.
 
 ## 0. Estado del proyecto
 
@@ -252,7 +252,7 @@ No hace falta desplegar nada para recibir:
 2. Si la URL no dice de quién es la página, el que conecta **es** el dueño: el panel muestra *su*
    saldo y aparece su widget de compartir con el link y el QR.
 3. El link para compartir lleva la dirección en la URL (`?u=0x…` o `/u/0x…`) y
-   `src/js/viewer-role.js` deriva de ahí el rol de quien mira (`guest` / `donor` / `owner`).
+   `src/js/roles/viewer-role.js` deriva de ahí el rol de quien mira (`guest` / `donor` / `owner`).
 4. Los visitantes donan **a esa** dirección: `fund(professional)`.
 5. Sólo esa dirección puede retirar lo suyo, porque el contrato usa `balances[msg.sender]`.
 
@@ -280,7 +280,7 @@ propio (`dist/assets/browser-*.js`).
 
 **El link que se comparte** (y por lo tanto el QR) usa como base **el origen que sirve la
 página**: `http://localhost:5173` en dev, el dominio real en producción (`SITE`, en
-`src/js/config.js`). Así el QR que generás mientras desarrollás abre **tu** app y la donación se
+`src/js/config/config.js`). Así el QR que generás mientras desarrollás abre **tu** app y la donación se
 puede probar de punta a punta sin publicar nada; con un dominio fijo, el QR de dev mandaba a
 producción, donde no hay nada que probar. `?site=https://…` lo fuerza y, fuera del navegador
 (los scripts de verificación importan `config.js` con Node), cae al dominio canónico.
@@ -290,7 +290,7 @@ Eso obliga a que la ruta del link (`/u/0x…`) **exista**: el servidor de desarr
 a `/donate.html` **con un redirect** —no con un rewrite: §5.5 explica por qué—, porque si no los
 links compartidos dan 404 o, peor, abren una página muerta.
 
-**La red por defecto depende del origen de la página** (`DEFAULT_CHAIN_ID`, en `src/js/config.js`),
+**La red por defecto depende del origen de la página** (`DEFAULT_CHAIN_ID`, en `src/js/config/config.js`),
 porque el mismo código sirve al desarrollo local y al sitio publicado:
 
 | origen | red por defecto |
@@ -320,15 +320,15 @@ haya conexión, y la red se elige con el `chainId` que reporta la wallet.
 
 Para hablar con el contrato hacen falta dos datos, y cada uno vive en un solo lugar:
 
-- **la red y la dirección**: `src/js/config.js` (`NETWORKS` por `chainId`, con override por URL
+- **la red y la dirección**: `src/js/config/config.js` (`NETWORKS` por `chainId`, con override por URL
   `?chain=31337&rpc=http://…&fund=0x…`); en Amoy `NETWORKS[80002].fund` se completa con la address
   que imprime el deploy (§6.1);
-- **el ABI**: `src/js/fund-abi.js` (legible, escrito a mano) y `src/fund.abi.json` (generado por
+- **el ABI**: `src/js/solidity/fund-abi.js` (legible, escrito a mano) y `src/fund.abi.json` (generado por
   `forge build`). Son dos copias: si cambia el contrato, se actualizan las dos.
 
 ### 5.2 Escrituras: simular → firmar → confirmar
 
-Toda escritura pasa por `src/js/tx.js`:
+Toda escritura pasa por `src/js/solidity/tx.js`:
 
 1. `simulateWrite()` pregunta a la chain qué pasaría (`eth_call`, con el `msg.sender` real): si va
    a revertir, revienta **antes** de abrir la wallet y sin gastar gas, con el error del contrato ya
@@ -349,12 +349,12 @@ para retirar. Un backend off-chain sólo tendría sentido para metadata no crít
 bio del creador), y hoy no existe.
 
 El rol (`guest` / `donor` / `owner`) se **deriva** de la URL más la cuenta conectada, no se elige
-(`src/js/viewer-role.js`). Ese rol sólo decide qué se muestra: la autoridad final es el contrato.
+(`src/js/roles/viewer-role.js`). Ese rol sólo decide qué se muestra: la autoridad final es el contrato.
 
 El botón **Cambiar cuenta** (navbar y tarjeta de donación) abre el selector de cuentas de la
 wallet con `wallet_requestPermissions` —`eth_requestAccounts` ya no pregunta nada una vez dado el
 permiso— y la app además **sigue** los cambios de cuenta que el usuario haga en su propia wallet
-suscribiéndose a `accountsChanged` (`onWalletAccountsChange` en `src/js/chain.js`), sin recargar la
+suscribiéndose a `accountsChanged` (`onWalletAccountsChange` en `src/js/solidity/chain.js`), sin recargar la
 página.
 
 ### 5.4 Modo demo (sólo la landing) y "Mi Panel"
@@ -362,10 +362,10 @@ página.
 **El modo demo es de la landing, no de la app.** El "Acto II" de la landing —la tarjeta de la
 sección *Querés invitar un whiskito*— invita en demo: simula la donación en el front (mismo
 retardo de 1200 ms), **no firma nada** y **no deja rastro en ningún lado**. El flag vive en
-`src/js/demo-mode.js` (`DEMO`, default `true`) y se apaga ahí con **`?demo=0`** (o `?real=1`), que
+`src/js/config/demo-mode.js` (`DEMO`, default `true`) y se apaga ahí con **`?demo=0`** (o `?real=1`), que
 devuelve el camino on-chain: simular → firmar → confirmar.
 
-**La página del link (`/u/0x…`) no es demo: cobra de verdad.** Su flujo (`src/js/donate.js`) no le
+**La página del link (`/u/0x…`) no es demo: cobra de verdad.** Su flujo (`src/js/entries/donate.js`) no le
 pasa el modo a `fund()`, así que firma contra el contrato siempre, y no muestra ningún aviso de
 demo (el aviso `.card-demo` de la tarjeta lo prende el flujo que corresponde: `app.js` en la
 landing, nadie en el link).
@@ -416,7 +416,7 @@ componentes no se registran).
 Cómo llega el donante: `vite.config.js` tiene un plugin chico que manda `/u/<dirección>` a
 `/donate.html?u=<dirección>`. Es un **redirect y no un rewrite**, y no es un detalle: en dev Vite
 deja las rutas de los assets del HTML **relativas**, así que si la página se sirviera *en* `/u/…`
-el navegador pediría `/u/js/donate.js` y recibiría el HTML con un 200 — el módulo no cargaría y la
+el navegador pediría `/u/js/entries/donate.js` y recibiría el HTML con un 200 — el módulo no cargaría y la
 página quedaría muerta sin un solo error a la vista. En el build las rutas salen absolutas
 (`/assets/…`).
 
@@ -436,7 +436,7 @@ bloqueado y la tarjeta se lo dice. La excepción de demo es sólo de la landing.
 **El veredicto de la transacción** (aceptada / cancelada) lo muestra la isla
 `whiskito-tx-modal`: se abre con `islands.showTxModal({ kind, title, message, hash, explorer })` y
 se cierra con el botón, `Escape` o un click en el fondo; con `hash` y `explorer` suma el enlace
-"Ver en el explorador". La abre el flujo de la página (`src/js/donate.js`) en los **tres
+"Ver en el explorador". La abre el flujo de la página (`src/js/entries/donate.js`) en los **tres
 desenlaces**: **confirmada** (con el hash y el explorador de la red —en anvil no hay explorador,
 así que el link no aparece), **simulada** (sin wallet conectada: lo dice, en vez de fingir una
 confirmación on-chain) y **cancelada** (la firma rechazada en la wallet se distingue del error
@@ -455,7 +455,7 @@ export PATH="$HOME/.foundry/bin:$PATH"          # anvil/forge/cast
 anvil
 
 # 2. deploy: mock del oráculo + Fund. Las direcciones son determinísticas y están
-#    en src/js/config.js; check-config verifica que no se hayan corrido.
+#    en src/js/config/config.js; check-config verifica que no se hayan corrido.
 bun run deploy
 # = forge script src/script/deploy.sol --rpc-url http://127.0.0.1:8545 --broadcast \
 #     --unlocked --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
@@ -507,7 +507,7 @@ El atajo de qa-desde-local es **`bun run dev:qa`** (`bunx --bun vite --open "/?c
 Vite apuntado a Amoy, **sin** levantar anvil ni deployar nada. Equivale a `bun run dev` + la URL con
 `?chain=80002`, pero sin la chain local de por medio.
 
-**La red por defecto sale del ORIGEN** (`DEFAULT_CHAIN_ID`, `src/js/config.js`): en local
+**La red por defecto sale del ORIGEN** (`DEFAULT_CHAIN_ID`, `src/js/config/config.js`): en local
 —`localhost`, loopback, `file://`/sin `location`, red privada o `.local`— la app apunta a **anvil**
 (`31337`), y en cualquier otro origen apunta al sitio publicado, o sea a **Amoy** (`80002`). Es
 deliberado: el QR del link de dev abre el server local desde el celular por IP de LAN, y esa visita
@@ -574,7 +574,7 @@ bun run deploy:amoy -- --with-gas-price 35gwei --priority-gas-price 30gwei
 #  y prioridad 1 gwei, y con una cuenta de 0,1 POL el nodo rechaza la transacción)
 
 # 3. el script imprime DOS addresses: la del adaptador y la del Fund. Se pegan en
-#    src/js/config.js → NETWORKS[80002]: el Fund en `fund` y el adaptador en `priceFeed`
+#    src/js/config/config.js → NETWORKS[80002]: el Fund en `fund` y el adaptador en `priceFeed`
 #    (y el bloque del deploy, que también imprime el run, en `deployBlock`)
 
 # 4. ¿config.js coincide con el deploy?
@@ -730,7 +730,7 @@ vive en <https://whiskito.vercel.app> contra Amoy y `main` despliega solo.
    `redesign-static.html` **ya está regenerada** y su bloque F verificado con control negativo (§5.4).
 8. **Deploy en Sepolia** — otra red (Ethereum, `chainId 11155111`), no la publicada: con el
    aggregator **real** de Chainlink (no el mock local) y descomentando y completando la entrada de
-   `NETWORKS` en `src/js/config.js` con la dirección que salga de la documentación de Chainlink para
+   `NETWORKS` en `src/js/config/config.js` con la dirección que salga de la documentación de Chainlink para
    esa red.
 
 Endurecimientos pendientes del contrato actual: la validación `answeredInRound >= roundId` (§3.2),
@@ -760,18 +760,20 @@ src/
   index.html               la landing (importmap: lucide → node_modules)
   styles.css               hoja global (tokens, reset, secciones en light DOM)
   js/
-    main.js                punto de entrada: registra las islas y llama a startApp()
-    app.js                 el flujo de la landing: datos hacia las islas, eventos hacia afuera
-    donate.js              el flujo de la página del link (`/u/0x…`), que cobra de verdad
-    islands.js             la ÚNICA frontera con el DOM
-    chain.js               red activa y los dos clientes
-    tx.js                  verificaciones y envío de toda escritura
-    solidity-functions.js  lecturas y escrituras del contrato
-    viewer-role.js         rol derivado (guest/donor/owner) y la guardia de auto-donación
-    demo-mode.js           ¿demo (default) o camino real on-chain (`?demo=0`)?
-    config.js              redes, direcciones y constantes de la app
-    fund-abi.js            ABI legible del contrato
-    constants.js format.js icons.js
+    entries/main.js        punto de entrada: registra las islas y llama a startApp()
+    entries/app.js         el flujo de la landing: datos hacia las islas, eventos hacia afuera
+    entries/donate.js      el flujo de la página del link (`/u/0x…`), que cobra de verdad
+    solidity/chain.js      red activa y los dos clientes
+    solidity/tx.js         verificaciones y envío de toda escritura
+    solidity/solidity-functions.js  lecturas y escrituras del contrato
+    solidity/fund-abi.js   ABI legible del contrato
+    config/config.js       redes, direcciones y constantes de la app
+    config/constants.js    constantes de la app
+    config/demo-mode.js    ¿demo (default) o camino real on-chain (`?demo=0`)?
+    dom/islands.js         la ÚNICA frontera con el DOM
+    dom/icons.js           registro e hidratación de los iconos de Lucide
+    utils/format.js        formateo (montos y direcciones cortas)
+    roles/viewer-role.js   rol derivado (guest/donor/owner) y la guardia de auto-donación
   components/              11 web components ("islas") + base-element.js
                            (whiskito-dashboard es el modal "Mi Panel")
 test/                      PolUsdAdapter.t.sol (18 tests de forge)

@@ -53,10 +53,10 @@
       // estima antes de firmar y `eth_estimateGas` revienta en el revert, así que
       // nunca llegaría a mandarse.
       import { createWalletClient, http, parseEther } from "https://esm.sh/viem";
-      import { startReadClient, connectWallet, getWalletClient } from "../../src/js/chain.js";
-      import { confirmReceipt, simulateWrite } from "../../src/js/tx.js";
-      import { FUND_ABI } from "../../src/js/fund-abi.js";
-      import { NETWORKS } from "../../src/js/config.js";
+      import { startReadClient, connectWallet, getWalletClient } from "../../src/js/solidity/chain.js";
+      import { confirmReceipt, simulateWrite } from "../../src/js/solidity/tx.js";
+      import { FUND_ABI } from "../../src/js/solidity/fund-abi.js";
+      import { NETWORKS } from "../../src/js/config/config.js";
 
       const CONTRATO = NETWORKS[31337].fund;
       const MOCK = NETWORKS[31337].priceFeed;

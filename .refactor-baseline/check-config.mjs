@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Chequeo de drift: que las direcciones de `src/config.js` sean las del último
+ * Chequeo de drift: que las direcciones de `src/js/config/config.js` sean las del último
  * deploy de Foundry.
  *
  * Las direcciones de anvil son determinísticas (mismo deployer, mismo nonce),
@@ -18,7 +18,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
 const BROADCAST = join(ROOT, "broadcast");
 
-const { NETWORKS } = await import(pathToFileURL(join(ROOT, "src/js/config.js")).href);
+const { NETWORKS } = await import(pathToFileURL(join(ROOT, "src/js/config/config.js")).href);
 
 if (!existsSync(BROADCAST)) {
   console.log("No hay broadcast/ todavía: no hay deploy con el que comparar.");

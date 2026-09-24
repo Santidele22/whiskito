@@ -13,7 +13,7 @@
 # el anvil sobrevive al comando y te deja el puerto 8545 ocupado.
 #
 # El deploy tampoco es incondicional a propósito: volver a deployar corre los
-# nonces y las direcciones de `src/js/config.js` dejan de existir (ver AGENTS.md
+# nonces y las direcciones de `src/js/config/config.js` dejan de existir (ver AGENTS.md
 # §4). Si el contrato ya está, no se toca nada.
 
 set -uo pipefail
@@ -28,22 +28,22 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 export PATH="$HOME/.bun/bin:$HOME/.foundry/bin:$PATH"
 
-# 0. La dirección del Fund de la red local, DERIVADA de `src/js/config.js` (no
+# 0. La dirección del Fund de la red local, DERIVADA de `src/js/config/config.js` (no
 #    copiada): si el deploy cambia de dirección, este script la sigue solo. El
 #    módulo es puro y sin `location` `defaultChainId()` devuelve 31337, así que
 #    se puede importar desde Node.
 FUND="$(cd "$ROOT" && node --input-type=module -e '
-import { NETWORKS, DEFAULT_CHAIN_ID } from "./src/js/config.js";
+import { NETWORKS, DEFAULT_CHAIN_ID } from "./src/js/config/config.js";
 const red = NETWORKS[DEFAULT_CHAIN_ID];
 if (!red?.fund) process.exit(1);
 console.log(red.fund);
 ' 2>/dev/null)" || FUND=""
 if [ -z "$FUND" ]; then
-  echo "!! no pude derivar la dirección del Fund desde src/js/config.js (NETWORKS[DEFAULT_CHAIN_ID].fund)" >&2
+  echo "!! no pude derivar la dirección del Fund desde src/js/config/config.js (NETWORKS[DEFAULT_CHAIN_ID].fund)" >&2
   exit 1
 fi
 if ! [[ "$FUND" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
-  echo "!! src/js/config.js devolvió una dirección de Fund que no es una address: '$FUND'" >&2
+  echo "!! src/js/config/config.js devolvió una dirección de Fund que no es una address: '$FUND'" >&2
   exit 1
 fi
 

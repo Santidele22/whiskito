@@ -49,8 +49,8 @@ trabajadores en paralelo produzcan una página coherente.
 - **Nada de emojis de cerveza** (🍺🍻🍾🥜) salvo 🍾/🎺 para "la botella entera" /
   "joda completa". El whisky es 🥃.
 - **Idioma del código:** comentarios en español, igual que el resto del repo.
-- **Prohibido** tocar `src/styles.css`, `src/main.js`, `src/viewer-role.js`,
-  `src/config.js`, `src/components/base-element.js`, `src/components/index.js` y
+- **Prohibido** tocar `src/styles.css`, `src/js/entries/main.js`, `src/js/roles/viewer-role.js`,
+  `src/js/config/config.js`, `src/components/base-element.js`, `src/components/index.js` y
   `.refactor-baseline/`. Cada trabajador toca **sólo sus archivos**.
 - **Prohibido** cambiar nombres de custom elements (`whiskito-navbar`, …), de
   eventos (`whiskito:*`), de archivos, ni los `id`/`data-*` que lista el contrato
@@ -667,7 +667,7 @@ andamiaje; los componentes sólo escriben marcadores.
 <i data-lucide="glass-water"></i>
 ```
 
-Al montar, `hydrateIcons()` (en `src/js/icons.js`, llamada desde
+Al montar, `hydrateIcons()` (en `src/js/dom/icons.js`, llamada desde
 `base-element.js`) lo reemplaza por el `<svg>` de Lucide, con la clase `icon`.
 **No escribas `<svg>` a mano y no importes lucide en el componente.**
 

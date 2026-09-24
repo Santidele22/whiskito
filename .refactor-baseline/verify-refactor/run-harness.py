@@ -113,14 +113,16 @@ for p, c in bad:
     print(f"  {c}  {p}")
 
 expected = [
-    "/src/js/main.js", "/src/js/app.js", "/src/js/islands.js",
-    "/src/js/config.js", "/src/js/constants.js", "/src/js/fund-abi.js",
-    "/src/js/chain.js", "/src/js/solidity-functions.js", "/src/js/tx.js", "/src/js/format.js",
-    "/src/js/viewer-role.js", "/src/js/icons.js", "/src/components/index.js",
-    # El modo demo, la isla de "Mi Panel" y su lectura de la chain: la página
-    # tiene que bajar los tres. (El ledger local de la demo ya no existe.)
-    "/src/js/demo-mode.js",
-    "/src/components/whiskito-dashboard.js",
+    "/src/js/entries/main.js", "/src/js/entries/app.js", "/src/js/dom/islands.js",
+    "/src/js/config/config.js", "/src/js/config/constants.js", "/src/js/solidity/fund-abi.js",
+    "/src/js/solidity/chain.js", "/src/js/solidity/solidity-functions.js", "/src/js/solidity/tx.js", "/src/js/utils/format.js",
+    "/src/js/roles/viewer-role.js", "/src/js/dom/icons.js", "/src/components/index.js",
+    # El modo demo y la isla que la landing monta EN RUNTIME en la vista del
+    # profesional (el saludo y la tabla del historial no vienen en el HTML): la
+    # página tiene que bajar las tres. (El ledger local de la demo y la isla del
+    # modal "Mi Panel" ya no existen; el retiro vive en la tabla del historial.)
+    "/src/js/config/demo-mode.js",
+    "/src/components/whiskito-history-table.js",
 ]
 seen_paths = {p.split("?")[0] for p, _ in statuses}
 print("\nExpected modules fetched by the page:")

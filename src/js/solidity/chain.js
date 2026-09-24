@@ -8,7 +8,7 @@ import {
 } from "https://esm.sh/viem";
 
 //CONFIGURACIÓN (redes y constantes de la app)
-import { DEFAULT_CHAIN_ID, effectiveNetwork } from "./config.js";
+import { DEFAULT_CHAIN_ID, effectiveNetwork } from "../config/config.js";
 
 let walletClient;
 let publicClient;
@@ -200,16 +200,32 @@ export async function switchToActiveNetwork() {
   return walletChainId === activeNetwork.chainId;
 }
 
-export async function connectWallet() {
-  //Solo detecta la wallet solamente si el usuario tiene descargado el plugin en su browser.
-  if (!hasWallet()) {
-    //Investigar que tipo de error aparece en un proyecto real
-    throw new Error("No hay wallet visible, por favor instala una");
-  }
-  const transport = custom(window.ethereum);
-  const probeWalletClient = createWalletClient({ transport });
-  const [address] = await probeWalletClient.requestAddresses();
+/**
+ * El transporte EIP-1193 de la wallet inyectada. Es UNO solo: lo usan tanto el
+ * cliente de sondeo (con el que se le pregunta a la wallet antes de comprometer
+ * nada) como el `walletClient` de la app, así que no se arman dos puentes
+ * distintos hacia la misma wallet.
+ */
+function walletTransport() {
+  return custom(window.ethereum);
+}
 
+/**
+ * Adopta como propia la sesión de la wallet con la cuenta `address`: resuelve
+ * con qué red trabaja la app (la de la wallet, o la que manda `?chain=`),
+ * construye el `walletClient`, se asegura de que la wallet esté en esa red
+ * —pidiéndole que se mueva si no—, rehace el cliente de lectura y deja las
+ * suscripciones a `accountsChanged` / `chainChanged`.
+ *
+ * Es el estado COMPARTIDO de `connectWallet()` y de `restoreWallet()`: una
+ * cuenta recién autorizada y una cuenta YA autorizada tienen que dejar la app
+ * exactamente igual (misma red, mismo `walletClient`, mismas lecturas), y por
+ * eso la lógica vive acá una sola vez.
+ *
+ * Lanza si la wallet no se mueve a la red activa, y en ese caso NO deja
+ * `walletClient` usable: no hay quién firme.
+ */
+async function adoptWalletSession(transport, probeWalletClient, address) {
   // La red la manda la wallet: si está en otra, se usa la config de ESA red. El
   // `?chain=` de la URL gana igual (lo resuelve `effectiveNetwork`): es una
   // instrucción, y quien tiene que moverse es la wallet.
@@ -250,6 +266,63 @@ export async function connectWallet() {
   // suscripciones a `accountsChanged` y a `chainChanged` (ver sus `ensure…`).
   ensureAccountsSubscription();
   ensureChainSubscription();
+}
+
+/**
+ * Conectar la wallet: le PIDE permiso al usuario (`eth_requestAccounts`, que en
+ * MetaMask es el popup de autorización) y adopta la sesión con la cuenta que
+ * devuelva.
+ */
+export async function connectWallet() {
+  //Solo detecta la wallet solamente si el usuario tiene descargado el plugin en su browser.
+  if (!hasWallet()) {
+    //Investigar que tipo de error aparece en un proyecto real
+    throw new Error("No hay wallet visible, por favor instala una");
+  }
+  const transport = walletTransport();
+  const probeWalletClient = createWalletClient({ transport });
+  const [address] = await probeWalletClient.requestAddresses();
+
+  await adoptWalletSession(transport, probeWalletClient, address);
+  return address;
+}
+
+/**
+ * Reconexión SILENCIOSA: si la wallet YA autorizó este sitio, la app vuelve a
+ * quedar conectada al cargar la página —así navegar de una página a otra no
+ * "desloguea"— sin abrirle ningún prompt al usuario.
+ *
+ * Por qué es silenciosa, y no un `connectWallet()`: acá se pregunta con
+ * `eth_accounts` (`walletClient.getAddresses()`), que devuelve las cuentas YA
+ * autorizadas SIN pedirle nada a nadie. El que abre el popup es
+ * `eth_requestAccounts` (`requestAddresses()`), y por eso NO se usa: cargar una
+ * página no puede hacer saltar un diálogo.
+ *
+ * Si la wallet contesta `[]` —no hay wallet, el usuario nunca autorizó este
+ * sitio, o desconectó explícitamente—, esto no hace absolutamente nada y
+ * devuelve `null`: la landing queda como está hoy. Ese último caso es el que
+ * hace que el arreglo conviva con `disconnectWallet()`: después de revocar el
+ * permiso (`wallet_revokePermissions`) la wallet deja de devolver la cuenta en
+ * `eth_accounts`, así que no se reconecta sola.
+ *
+ * No hay estado local de por medio (nada de `localStorage`, `sessionStorage` ni
+ * cookies): la fuente de verdad es la WALLET, que es la única que sabe si este
+ * sitio sigue autorizado.
+ *
+ * Sin wallet devuelve `null` sin lanzar y sin tocar el estado. Puede lanzar si
+ * hay cuenta autorizada pero la wallet no se mueve a la red activa: es el mismo
+ * desajuste —y el mismo error— que en `connectWallet()`, y quien la llama tiene
+ * que decidir qué hacer.
+ */
+export async function restoreWallet() {
+  if (!hasWallet()) return null;
+  const transport = walletTransport();
+  const probeWalletClient = createWalletClient({ transport });
+  // `getAddresses()` = `eth_accounts`: lee, no pide permiso.
+  const [address] = await probeWalletClient.getAddresses();
+  if (!address) return null;
+
+  await adoptWalletSession(transport, probeWalletClient, address);
   return address;
 }
 

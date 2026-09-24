@@ -38,6 +38,6 @@ qué módulos esperados bajó la página. Sale con código 1 si algo falla.
 
 ## 3. Cobertura del ABI
 
-`src/js/fund-abi.js` es una copia de `src/fund.abi.json`; comparar los conjuntos
+`src/js/solidity/fund-abi.js` es una copia de `src/fund.abi.json`; comparar los conjuntos
 de `function`/`event`/`error`/`constructor` por nombre detecta entradas perdidas
 al mover el archivo (el chequeo de imports no lo ve).

@@ -1,4 +1,4 @@
-import { hydrateIcons } from "../js/icons.js";
+import { hydrateIcons } from "../js/dom/icons.js";
 
 /**
  * Base de los web components de Whiskito.

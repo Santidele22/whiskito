@@ -16,7 +16,7 @@
     <pre id="out">corriendo…</pre>
 
     <script type="module">
-      import { NETWORKS, urlConfig, DEFAULT_CHAIN_ID } from "../src/js/config.js";
+      import { NETWORKS, urlConfig, DEFAULT_CHAIN_ID } from "../src/js/config/config.js";
       const CONTRATO = NETWORKS[31337].fund; // el harness conoce la dirección del contrato
       const CB = "?cb=" + Date.now();
       const frameNuevo = document.getElementById("nuevo");
@@ -30,7 +30,7 @@
       // Oráculo del harness: lee balances(address) DIRECTO de la chain, sin
       // pasar por la app. Así se compara lo que muestra la UI contra la fuente,
       // y no contra un número que el propio test deja de valer al correr.
-      const CONTRATO_JS = (await import("../src/js/config.js")).NETWORKS[31337].fund;
+      const CONTRATO_JS = (await import("../src/js/config/config.js")).NETWORKS[31337].fund;
       const saldoOnChain = async (address) => {
         const r = await fetch("http://127.0.0.1:8545", {
           method: "POST",
@@ -147,7 +147,7 @@
             `""→${urlConfig("")} "?foo=bar"→${urlConfig("?foo=bar")}`);
           // Los valores REALES de Amoy van como LITERALES a propósito: si se
           // compararan contra `NETWORKS[80002]`, un `fund` (o un `rpc`) mal
-          // escrito en `src/js/config.js` pasaría —la config se compararía
+          // escrito en `src/js/config/config.js` pasaría —la config se compararía
           // consigo misma—. Con literales, el typo rompe esta aserción.
           const AMOY_FUND_REAL = "0xc92b0cAB9Bd6247250d483613B804593c7f3fEF8";
           const AMOY_RPC_REAL = "https://polygon-amoy-bor-rpc.publicnode.com";
@@ -167,7 +167,7 @@
           await sleep(1800);
           const winG1 = frameG1.contentWindow;
           const redEfectivaG1 = await winG1.eval(
-            '(async () => (await import("/src/js/chain.js")).getActiveNetwork())()'
+            '(async () => (await import("/src/js/solidity/chain.js")).getActiveNetwork())()'
           );
           check("G1i con `?chain=99999` la app trabaja contra la red del origen (anvil 31337)",
             redEfectivaG1?.chainId === 31337 &&
@@ -180,7 +180,7 @@
           // El MISMO módulo de la frontera que usa la app, para interactuar con
           // las islas por su API (y no por el DOM del documento): es el equivalente
           // de `main.js` inyectando datos.
-          const islandsWin = await import("/src/js/islands.js");
+          const islandsWin = await import("/src/js/dom/islands.js");
           // El camino PÚBLICO de lectura: el mismo que usa el flujo para pintar
           // el panel (no se toca el DOM de la isla a mano).
           // Las islas y su frontera (islands.js) viven en el realm de la app, que
@@ -196,8 +196,8 @@
             return res ? res.valor : undefined;
           };
           const cargarPanel = async (dir) => enLaApp(
-            `const islands = await import("/src/js/islands.js");
-             const { readPortfolio } = await import("/src/js/solidity-functions.js");
+            `const islands = await import("/src/js/dom/islands.js");
+             const { readPortfolio } = await import("/src/js/solidity/solidity-functions.js");
              islands.showPortfolio(await readPortfolio(arg));`,
             dir,
           );
@@ -230,7 +230,7 @@
 
           // ── A. Montaje y datos inyectados por main.js ──────────────
           const hosts = [...doc.querySelectorAll("*")].filter((e) => e.tagName.includes("-"));
-          check("A1 montados los 11 componentes", hosts.length === 11, `hosts=${hosts.length}`);
+          check("A1 montados los 10 componentes", hosts.length === 10, `hosts=${hosts.length}`);
           check("A2 cada host montado: contenido en light DOM o en su shadow root",
             hosts.every((h) => (h.shadowRoot ? h.shadowRoot.children.length >= 1 : h.children.length === 1)),
             hosts.map((h) => `${h.tagName}:${h.shadowRoot ? "shadow" : h.children.length}`).join(" "));
@@ -658,6 +658,76 @@
           navRoot.querySelector("#connectButton").click();
           await sleep(1500); // conecta, resuelve la red y lee el portfolio
 
+          // ── P1-P7. Vista del PROFESIONAL en la landing pelada ─────────
+          // El disparador es "hay cuenta conectada Y la URL no nombra un dueño":
+          // esta página es `/src/index.html` (sin `?u=` ni `/u/0x…`), así que
+          // conectar acá es "empezá a recibir" y el body pasa a la vista del
+          // profesional. Todo se cuelga de la espera que la conexión ya hizo
+          // (1500 ms): ni un iframe nuevo ni una espera nueva.
+          // Las SEIS de siempre más el panel: el backstage ya no muestra el
+          // resumen del panel (su retiro vive en la tabla del historial), así que
+          // ahora también se oculta.
+          const SECCIONES_VISITANTE = [
+            "whiskito-hero", "whiskito-how-it-works", "whiskito-trust",
+            "whiskito-faq", "whiskito-footer", "whiskito-radio", "whiskito-panel",
+          ];
+          const displayVisitante = SECCIONES_VISITANTE.map((tag) => {
+            const host = doc.querySelector(tag);
+            return { tag, display: host ? win.getComputedStyle(host).display : "sin host" };
+          });
+          check("P1 la landing sin dueño en la URL, con la cuenta conectada, pone is-profesional en el body",
+            doc.body.classList.contains("is-profesional"),
+            `class="${doc.body.className}"`);
+          check("P2 las SIETE secciones del visitante quedan ocultas de verdad (display:none) — las seis de siempre más el panel",
+            displayVisitante.every((s) => s.display === "none"),
+            displayVisitante.map((s) => `${s.tag.replace("whiskito-", "")}=${s.display}`).join(" "));
+          // Se INVIERTE para el panel: antes el backstage lo mostraba y esta
+          // aserción exigía verlo; ahora la vista del profesional lo esconde (el
+          // retiro se hace desde la tabla del historial, que es la que está
+          // montada abajo). El widget de compartir sigue siendo de esta vista y
+          // NO se oculta.
+          check("P3 el widget de compartir NO se oculta y el panel SÍ (el retiro de esta vista vive en la tabla)",
+            win.getComputedStyle(share).display !== "none" && win.getComputedStyle(panel).display === "none",
+            `share=${win.getComputedStyle(share).display} panel=${win.getComputedStyle(panel).display}`);
+          const proGreeting = doc.querySelector("whiskito-pro-greeting");
+          const proTable = doc.querySelector("whiskito-history-table");
+          check("P4 el saludo y la tabla del historial están montados, en ese orden y debajo del navbar",
+            Boolean(proGreeting) && Boolean(proTable) &&
+              navbar.nextElementSibling === proGreeting && proGreeting.nextElementSibling === proTable,
+            `saludo=${proGreeting ? "montado" : "ausente"} tabla=${proTable ? "montada" : "ausente"} navbar.next=${navbar.nextElementSibling?.tagName ?? "ninguno"} saludo.next=${proGreeting?.nextElementSibling?.tagName ?? "ninguno"}`);
+          const proGreetingRoot = proGreeting?.shadowRoot ?? proGreeting;
+          const etiquetaSaludo = proGreetingRoot?.querySelector("#greetingAddress");
+          check("P5 el saludo y la tabla son de la cuenta conectada (y el saludo la muestra acortada, con la completa en el title)",
+            Boolean(proGreeting) && Boolean(proTable) &&
+              proGreeting.address !== "" &&
+              proGreeting.address.toLowerCase() === navbar.account.toLowerCase() &&
+              proTable.address.toLowerCase() === navbar.account.toLowerCase() &&
+              NORM(etiquetaSaludo?.textContent) === `${navbar.account.slice(0, 6)}...${navbar.account.slice(-4)}` &&
+              etiquetaSaludo?.getAttribute("title") === navbar.account,
+            `saludo.address="${proGreeting?.address}" tabla.address="${proTable?.address}" navbar.account="${navbar.account}" pintado="${NORM(etiquetaSaludo?.textContent ?? "")}" title="${etiquetaSaludo?.getAttribute("title")}"`);
+          // La tabla, INLINE: el historial real de la cuenta (el test acaba de
+          // donarle de verdad, así que hay filas). Si no las hubiera, el único
+          // estado coherente es el vacío —nunca un aviso de error, ni una tabla
+          // vacía que se lea como "no recibiste nada" cuando la lectura falló.
+          const proTableRoot = proTable?.shadowRoot ?? proTable;
+          const filasPro = proTableRoot?.querySelectorAll("#histBody tr") ?? [];
+          const resumenPro = proTableRoot?.querySelector("#histSummary");
+          const vacioPro = proTableRoot?.querySelector(".hist-empty");
+          check("P6 la tabla inline muestra las filas leídas de la chain (o su estado vacío coherente; nunca un mensaje de error)",
+            Boolean(proTable) && proTable.message === "" &&
+              (proTable.rows.length > 0
+                ? filasPro.length === proTable.rows.length && resumenPro.hidden === false
+                : vacioPro.hidden === false),
+            `filas=${proTable?.rows.length} pintadas=${filasPro.length} message="${proTable?.message}" vacioHidden=${vacioPro?.hidden} resumen="${NORM(resumenPro?.textContent ?? "")}"`);
+          // P7 era la aserción de que la vista del profesional no abría el modal
+          // "Mi Panel" sola. El modal se borró y su función la cubre la tabla, y
+          // lo que queda de aquella promesa es que la tabla del historial SÍ
+          // reciba el permiso de retirar: sin ese permiso, la vista del
+          // profesional no tendría ninguna forma de sacar el dinero.
+          check("P7 la tabla del historial INLINE ya viene autorizada a retirar (el panel de esta vista está oculto)",
+            Boolean(proTable) && proTable.canWithdraw === true,
+            `tabla=${Boolean(proTable)} canWithdraw=${proTable?.canWithdraw}`);
+
           check("H1b al conectar como dueño, aparece el widget de compartir", !share.hasAttribute("hidden"),
             `hidden=${share.hasAttribute("hidden")}`);
           check("H1c y se abre solo (es cuando tiene algo para compartir)", sharePanel?.hidden === false,
@@ -770,6 +840,16 @@
             return dec ? `${entero}.${dec}` : `${entero}`;
           };
           const paramDe = (data) => (data && data.length >= 10 ? BigInt("0x" + data.slice(10, 74)) : null);
+          // El monto en wei, EXACTO: `Number(decimal) * 1e9 * 1e9` no da el wei
+          // original (el decimal pasa por un flotante), así que un "un wei más"
+          // construido así puede terminar siendo un wei MENOS y la validación
+          // —correctamente— lo aceptaría. Se parte el texto en entero y
+          // decimales y se arma el BigInt a mano.
+          const weiDeEth = (texto) => {
+            const [entero, decimales = ""] = String(texto).trim().split(".");
+            const frac = (decimales + "0".repeat(18)).slice(0, 18);
+            return BigInt(entero || "0") * 10n ** 18n + BigInt(frac || "0");
+          };
           const firmasDe = (selector) => pedidos.filter(
             (p) => p.method === "eth_sendTransaction" && p.params?.[0]?.to?.toLowerCase() === CONTRATO.toLowerCase() &&
               String(p.params?.[0]?.data ?? "").startsWith(selector),
@@ -805,6 +885,17 @@
           const panelConfirm = panelRoot.querySelector("#withdrawConfirmButton");
           const panelCancel = panelRoot.querySelector("#withdrawCancelButton");
           const panelWithdrawStatus = panelRoot.querySelector("#withdrawStatus");
+
+          // La OTRA isla que retira: la tabla del historial de la vista del
+          // profesional. El veredicto es uno solo y se escribe en las dos
+          // (islands.setWithdrawStatus), así que su espejo se lee de acá. El
+          // bloque V, más abajo, ejerce el retiro desde ESTA isla.
+          // OJO: la isla se DESMONTA al desconectar y se vuelve a montar al
+          // reconectar (hideProfesional / showProfesional), así que toda lectura
+          // de acá en adelante tiene que salir de una consulta NUEVA: un nodo
+          // guardado antes de una reconexión queda desconectado del documento y
+          // su balance se congela.
+          const tablaViva = () => doc.querySelector("whiskito-history-table");
 
           check("W1 el panel tiene las dos vías de retiro y la fila nace colapsada",
             Boolean(panelWithdrawButton && panelPartButton && panelPartRow && panelAmount && panelPartError && panelConfirm && panelCancel && panelWithdrawStatus) &&
@@ -844,6 +935,22 @@
           // 1. Las dos vías existen, son VISIBLES y alcanzables con el mouse.
           //    El recibo está rotado 1.2deg: el hit test es la única prueba de
           //    que un elemento no quedó tapado por el orden de pintado.
+          //
+          // ── Precondición de W4 y W8: el panel en la vista del VISITANTE ──
+          // W4 y W8 son las dos únicas aserciones del bloque W que miden
+          // GEOMETRÍA (`alcanzableEn` = getBoundingClientRect + elementFromPoint),
+          // y el panel ya no se muestra en la vista del profesional —su retiro
+          // vive en la tabla del historial—: con `is-profesional`
+          // puesto su caja es 0x0 y las dos medirían el estado escondido en vez
+          // del retiro. El panel sigue siendo el mismo recinto de siempre, y la
+          // vista donde vive es la del VISITANTE: es el mismo criterio con el que
+          // L4 y M2/M6 recuperan su precondición (ver "Precondición de L y M").
+          // Se saca SÓLO la clase del body —la vista—; la cuenta sigue conectada
+          // como dueño, que es lo que W necesita para firmar el retiro.
+          // Y se RESTITUYE apenas termina W8: P8 mide la transición al
+          // desconectar (que la clase se vaya), y con la clase ya sacada de antes
+          // pasaría sin haber medido nada.
+          doc.body.classList.remove("is-profesional");
           panelWithdrawButton.scrollIntoView({ block: "center", behavior: "instant" });
           await sleep(250);
           check("W4 «Retirar todo» y «Retirar una parte» son alcanzables y visibles (no tapados)",
@@ -870,6 +977,11 @@
           check("W8 el input, el confirmar y el cancelar son alcanzables de verdad",
             alcanzableEn(panelRoot, panelAmount) && alcanzableEn(panelRoot, panelConfirm) && alcanzableEn(panelRoot, panelCancel),
             `input=${alcanzableEn(panelRoot, panelAmount)}${centroDe(panelAmount)} confirmar=${alcanzableEn(panelRoot, panelConfirm)}${centroDe(panelConfirm)} cancelar=${alcanzableEn(panelRoot, panelCancel)}${centroDe(panelCancel)}`);
+          // W8 cerró las dos mediciones de geometría del panel: se RESTITUYE la
+          // clase del body (la vista que el flujo tenía puesta) para que P8 siga
+          // midiendo la transición real al desconectar y nada de acá en adelante
+          // vea una vista que la app no pidió.
+          doc.body.classList.add("is-profesional");
 
           // 3. Fronteras de la validación.
           await escribirMonto(panelAmount, "0");
@@ -972,10 +1084,9 @@
               NORM(panelWithdrawStatus.textContent) === "¡Retirado!" &&
               panelWithdrawStatus.classList.contains("is-success"),
             `status=${panel.withdrawStatus} msg="${panel.withdrawMessage}" hidden=${panelWithdrawStatus.hidden} texto="${NORM(panelWithdrawStatus.textContent)}" clases=${panelWithdrawStatus.className}`);
-          const dashEspejo = doc.querySelector("whiskito-dashboard");
-          check("W21b el mismo veredicto se escribió en la otra isla (una sola verdad para dos islas)",
-            dashEspejo.withdrawStatus === "success" && dashEspejo.withdrawMessage === "¡Retirado!",
-            `dashboard=${dashEspejo.withdrawStatus} msg="${dashEspejo.withdrawMessage}"`);
+          check("W21b el mismo veredicto se escribió en la otra isla que retira (una sola verdad para dos islas)",
+            tablaViva().withdrawStatus === "success" && tablaViva().withdrawMessage === "¡Retirado!",
+            `tabla=${tablaViva().withdrawStatus} msg="${tablaViva().withdrawMessage}"`);
 
           // 6. Cancelar: colapsa la fila, limpia el input y no firma nada.
           panelPartButton.click();
@@ -990,135 +1101,275 @@
               (await saldoOnChain(DUEÑO)) === saldoDespues,
             `filaHidden=${panelPartRow.hidden} input="${panelAmount.value}" botonHidden=${panelPartButton.hidden} firmas=${firmasAntesCancelar}→${firmasDe("0x2e1a7d4d").length} chain=${await saldoOnChain(DUEÑO)}`);
 
-          // ── W23. SIMETRÍA: el mismo camino desde el modal «Mi Panel» ───
-          // Otra vez hace falta saldo: se prepara con otra donación real (0.002).
-          const fund3 = await fetch("http://127.0.0.1:8545", {
+          // ── V. EL RETIRO DESDE LA TABLA DEL HISTORIAL ─────────────────
+          // El retiro del profesional ya no vive en un modal: vive en la MISMA
+          // tabla del historial que la vista monta inline, con el permiso
+          // `canWithdraw` que el flujo le pasa al encenderla (app.js →
+          // islands.showHistory). Es opt-in: sin el permiso la isla no dibuja ni
+          // el saldo ni los botones, así que `/historial` sigue siendo una página
+          // de lectura. V7 es el control negativo de ese opt-in.
+          //
+          // Los eventos son los de SIEMPRE —`whiskito:withdraw-request` con
+          // `amount: null` para el total y con el texto decimal en POL para el
+          // parcial—, así que el oráculo vuelve a ser la chain: `balances(address)`
+          // leído por el harness, no lo que la UI dice.
+          let tablaRootV = doc.querySelector("whiskito-history-table").shadowRoot;
+          let tablaBotonTodo = tablaRootV.querySelector("#histWithdrawButton");
+          let tablaBotonParte = tablaRootV.querySelector("#histWithdrawPartButton");
+          let tablaFilaParte = tablaRootV.querySelector("#histWithdrawPart");
+          let tablaMonto = tablaRootV.querySelector("#histWithdrawAmount");
+          let tablaError = tablaRootV.querySelector("#histWithdrawPartError");
+          let tablaConfirm = tablaRootV.querySelector("#histWithdrawConfirmButton");
+          let tablaCancel = tablaRootV.querySelector("#histWithdrawCancelButton");
+          let tablaStatus = tablaRootV.querySelector("#histWithdrawStatus");
+          let tablaBalancePintado = tablaRootV.querySelector("#histBalance");
+
+          // V1. Sin permiso, nada: es el punto de partida y el control negativo
+          //     del opt-in. El discriminador es el `hidden` de la sección —el
+          //     texto de los botones sigue en el DOM aunque la sección no se
+          //     dibuje, así que mirar el texto no probaría nada—.
+          tablaViva().canWithdraw = false;
+          await sleep(250);
+          check("V1 sin canWithdraw la tabla NO ofrece retirar (el opt-in, apagado)",
+            tablaViva().canWithdraw === false &&
+              tablaRootV.querySelector(".hist-withdraw").hidden === true,
+            `canWithdraw=${tablaViva().canWithdraw} seccionHidden=${tablaRootV.querySelector(".hist-withdraw").hidden}`);
+          tablaViva().canWithdraw = true;
+          await sleep(250);
+
+          // V2. Con permiso, el saldo que muestra es el de la CHAIN.
+          let saldoV = await saldoOnChain(DUEÑO);
+          // El fondo de la vista: la PÁGINA es negra y el lienzo del viewport
+          // también (si no, el blanco del navegador asomaría donde el documento
+          // no llega, y el pedido es UN solo color de fondo).
+          check("V1b el fondo de la vista del profesional es negro, también en el lienzo del viewport",
+            win.getComputedStyle(doc.body).backgroundColor === "rgb(28, 21, 18)" &&
+              win.getComputedStyle(doc.documentElement).backgroundColor === "rgb(28, 21, 18)",
+            `body=${win.getComputedStyle(doc.body).backgroundColor} html=${win.getComputedStyle(doc.documentElement).backgroundColor} (--ink = #1c1512)`);
+
+          check("V2 autorizada, la tabla muestra el saldo disponible de la chain (con los dos botones)",
+            tablaViva().canWithdraw === true && tablaViva().balanceEth === saldoV && Number(saldoV) > 0 &&
+              tablaRootV.querySelector(".hist-withdraw").hidden === false &&
+              tablaBotonTodo.hidden === false && tablaBotonParte.hidden === false &&
+              /^\d+(\.\d+)?$/.test(NORM(tablaBalancePintado.textContent)) &&
+              NORM(tablaBalancePintado.textContent) === saldoV &&
+              /^≈ \$[\d.]+ USD$/.test(NORM(tablaRootV.querySelector("#histBalanceUsd").textContent)),
+            `chain=${saldoV} tabla=${tablaViva().balanceEth} pintado="${NORM(tablaBalancePintado.textContent)}" usd="${NORM(tablaRootV.querySelector("#histBalanceUsd")?.textContent)}" hidden=${tablaBotonTodo.hidden}/${tablaBotonParte.hidden}`);
+
+          // V3. Los botones son alcanzables DE VERDAD. La tabla está al final de
+          //     una página larga: se scrollea a la tarjeta y se comprueba con
+          //     `elementFromPoint` (`.click()` programático pasa aunque el botón
+          //     esté tapado).
+          tablaBotonTodo.scrollIntoView({ block: "center", behavior: "instant" });
+          await sleep(250);
+          check("V3 los dos botones de la tabla son alcanzables y visibles (no tapados)",
+            alcanzableEn(tablaRootV, tablaBotonTodo) && alcanzableEn(tablaRootV, tablaBotonParte) &&
+              tablaBotonTodo.disabled === false && tablaBotonParte.disabled === false,
+            `todo=${alcanzableEn(tablaRootV, tablaBotonTodo)}${centroDe(tablaBotonTodo)} parte=${alcanzableEn(tablaRootV, tablaBotonParte)}${centroDe(tablaBotonParte)} scrollY=${Math.round(win.scrollY)}`);
+          const firmasV = () => firmasDe("0x853828b6").length;
+          const firmasParcialV = () => firmasDe("0x2e1a7d4d").length;
+
+          // V4. "Retirar todo" firma withdrawAll() y la chain queda en cero.
+          const firmasTodoAntes = firmasV();
+          tablaBotonTodo.click();
+          await sleep(3500);
+          const saldoTrasTodo = await saldoOnChain(DUEÑO);
+          check("V4 «Retirar todo» firma UNA vez withdrawAll() contra el contrato",
+            firmasV() === firmasTodoAntes + 1 &&
+              firmasDe("0x853828b6").at(-1)?.params?.[0]?.to?.toLowerCase() === CONTRATO.toLowerCase(),
+            `firmas ${firmasTodoAntes}→${firmasV()} to=${firmasDe("0x853828b6").at(-1)?.params?.[0]?.to}`);
+          check("V5 y el saldo de la chain bajó a cero",
+            saldoTrasTodo === "0" && Number(saldoV) > 0,
+            `chain ${saldoV}→${saldoTrasTodo}`);
+
+          // V6. El camino PARCIAL: se prepara saldo nuevo (donación real: el
+          //     retiro anterior vació la cuenta) y se vuelve a encender la vista
+          //     reconectando, que es el camino real de una lectura fresca.
+          const fundV = await fetch("http://127.0.0.1:8545", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               jsonrpc: "2.0", id: 1, method: "eth_sendTransaction",
               params: [{
                 from: DONANTE_ANVIL, to: CONTRATO,
-                value: "0x" + (2000000000000000n).toString(16), // 0.002 ETH
+                value: "0x" + (3000000000000000n).toString(16), // 0.003 ETH
+                data: "0x23024408" + DUEÑO.slice(2).padStart(64, "0"), // fund(DUEÑO)
+              }],
+            }),
+          }).then((r) => r.json());
+          check("V6 el test se preparó saldo para el retiro parcial (donación real, control de esta prueba)",
+            String(fundV.result ?? "").startsWith("0x"), JSON.stringify(fundV).slice(0, 160));
+          await sleep(700);
+          navRoot.querySelector("#disconnectButton").click();
+          await sleep(700);
+          navRoot.querySelector("#connectButton").click();
+          await sleep(1800);
+          // Reconectar reabre el panel de compartir (showConnectedAccount lo abre
+          // solo cuando la cuenta es la dueña), y el bloque H —que corre después—
+          // dejó su panel CERRADO: se le devuelve esa precondición, que es estado
+          // de la isla de compartir y no de la app.
+          share.open = false;
+          await sleep(150);
+          // Y la tabla es un nodo NUEVO: la isla se desmontó al desconectar y
+          // showProfesional la volvió a crear. Se vuelven a resolver los nodos
+          // sobre ESA isla viva (los de arriba quedaron desconectados).
+          const tablaV = tablaViva();
+          tablaRootV = tablaV.shadowRoot;
+          tablaBalancePintado = tablaRootV.querySelector("#histBalance");
+          tablaBotonTodo = tablaRootV.querySelector("#histWithdrawButton");
+          tablaBotonParte = tablaRootV.querySelector("#histWithdrawPartButton");
+          tablaFilaParte = tablaRootV.querySelector("#histWithdrawPart");
+          tablaMonto = tablaRootV.querySelector("#histWithdrawAmount");
+          tablaError = tablaRootV.querySelector("#histWithdrawPartError");
+          tablaConfirm = tablaRootV.querySelector("#histWithdrawConfirmButton");
+          tablaCancel = tablaRootV.querySelector("#histWithdrawCancelButton");
+          tablaStatus = tablaRootV.querySelector("#histWithdrawStatus");
+          saldoV = await saldoOnChain(DUEÑO);
+          check("V7 tras preparar saldo, la tabla lo muestra (la lectura nueva y el permiso siguen vivos)",
+            tablaV.canWithdraw === true && tablaV.balanceEth === saldoV && Number(saldoV) > 0 &&
+              NORM(tablaBalancePintado.textContent) === saldoV &&
+              /^≈ \$[\d.]+ USD$/.test(NORM(tablaRootV.querySelector("#histBalanceUsd").textContent)),
+            `chain=${saldoV} tabla=${tablaV.balanceEth} pintado="${NORM(tablaBalancePintado.textContent)}" canWithdraw=${tablaV.canWithdraw}`);
+
+          // V8. "Retirar una parte" despliega la fila con el input vacío y el
+          //     placeholder en el saldo disponible.
+          tablaBotonParte.scrollIntoView({ block: "center", behavior: "instant" });
+          await sleep(250);
+          tablaBotonParte.click();
+          await sleep(200);
+          check("V8 el click despliega la fila con el input vacío y el confirmar apagado",
+            tablaFilaParte.hidden === false && tablaBotonParte.hidden === true &&
+              tablaMonto.value === "" && String(tablaMonto.placeholder).trim() === String(saldoV).trim() &&
+              tablaConfirm.disabled === true && tablaError.hidden === false &&
+              NORM(tablaError.textContent) === "El monto tiene que ser mayor que 0" &&
+            `filaHidden=${tablaFilaParte.hidden} botonHidden=${tablaBotonParte.hidden} input="${tablaMonto.value}" placeholder="${tablaMonto.placeholder}" disabled=${tablaConfirm.disabled} error="${NORM(tablaError.textContent)}" firmas=${firmasParcialV()}`);
+          // La fila abierta es más alta que los dos botones de arriba: se
+          // scrollea a su centro para que el confirmar y el cancelar caigan
+          // DENTRO de la ventana (si no, `elementFromPoint` devuelve el borde y
+          // la medición no dice nada). V3 ya midió los de arriba.
+          tablaConfirm.scrollIntoView({ block: "center", behavior: "instant" });
+          await sleep(250);
+          check("V9 el input, el confirmar y el cancelar de la tabla son alcanzables de verdad",
+            alcanzableEn(tablaRootV, tablaMonto) && alcanzableEn(tablaRootV, tablaConfirm) && alcanzableEn(tablaRootV, tablaCancel),
+            (() => {
+              const r = tablaConfirm.getBoundingClientRect();
+              const arriba = tablaRootV.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              const rr = tablaCancel.getBoundingClientRect();
+              const arribaC = tablaRootV.elementFromPoint(rr.left + rr.width / 2, rr.top + rr.height / 2);
+              return `input=${alcanzableEn(tablaRootV, tablaMonto)} confirmar=${alcanzableEn(tablaRootV, tablaConfirm)}${centroDe(tablaConfirm)} arriba=${arriba ? arriba.tagName + "." + arriba.className : "null"} cancelar=${alcanzableEn(tablaRootV, tablaCancel)}${centroDe(tablaCancel)} arribaC=${arribaC ? arribaC.tagName + "." + arribaC.className : "null"} fila=${centroDe(tablaFilaParte)} ventana=${win.innerWidth}x${win.innerHeight} scrollY=${Math.round(win.scrollY)}`;
+            })());
+
+          // V10. Las fronteras del monto: vacío y 0 inválidos, más que el saldo
+          //      inválido (y lo dice), exactamente el saldo VÁLIDO. Y al final un
+          //      monto REAL (0.001) que no vacía la cuenta.
+          const firmasAntesValidarV = firmasParcialV();
+          await escribirMonto(tablaMonto, "0");
+          const errorCeroV = NORM(tablaError.textContent);
+          const demasiadoV = weiAeth(weiDeEth(saldoV) + 1n);
+          await escribirMonto(tablaMonto, demasiadoV);
+          const errorDemasiadoV = NORM(tablaError.textContent);
+          check("V10 el monto 0 y uno mayor al saldo quedan deshabilitados y avisan",
+            errorCeroV === "El monto tiene que ser mayor que 0" &&
+              errorDemasiadoV === "No podés retirar más de lo que tenés" &&
+              tablaConfirm.disabled === true && tablaError.hidden === false &&
+              firmasParcialV() === firmasAntesValidarV,
+            `0→"${errorCeroV}" ${demasiadoV}→"${errorDemasiadoV}" disabled=${tablaConfirm.disabled} firmas=${firmasAntesValidarV}→${firmasParcialV()}`);
+          await escribirMonto(tablaMonto, saldoV);
+          check("V11 un monto igual al saldo es válido y habilita el confirmar (el borde bueno)",
+            tablaConfirm.disabled === false && tablaError.hidden === true,
+            `monto=${saldoV} disabled=${tablaConfirm.disabled} errorHidden=${tablaError.hidden}`);
+          const MONTO_V = "0.001";
+          await escribirMonto(tablaMonto, MONTO_V);
+          check("V11b y con un monto menor el confirmar sigue habilitado",
+            tablaConfirm.disabled === false && tablaError.hidden === true,
+            `monto=${MONTO_V} disabled=${tablaConfirm.disabled} error="${NORM(tablaError.textContent)}"`);
+
+          // V12. El retiro parcial firma withdraw(uint256) con el monto en wei, el
+          //      saldo de la chain baja EXACTAMENTE eso, y la tabla queda mostrando
+          //      el saldo nuevo (lo relee el flujo después del retiro, que es lo
+          //      que antes hacía con el modal).
+          const saldoAntesParcialV = await saldoOnChain(DUEÑO);
+          const firmasParcialAntesV = firmasParcialV();
+          const firmasTodoAntesV = firmasV();
+          tablaConfirm.click();
+          await sleep(3500);
+          const dataParcialV = String(firmasDe("0x2e1a7d4d").at(-1)?.params?.[0]?.data ?? "");
+          const saldoDespuesParcialV = await saldoOnChain(DUEÑO);
+          const esperadoParcialV = weiAeth(weiDeEth(saldoAntesParcialV) - MONTO_WEI);
+          check("V12 el retiro parcial firma UNA vez withdraw(uint256) con el monto en wei (y no withdrawAll)",
+            firmasParcialV() === firmasParcialAntesV + 1 && dataParcialV.startsWith("0x2e1a7d4d") &&
+              paramDe(dataParcialV) === MONTO_WEI && firmasV() === firmasTodoAntesV,
+            `firmas ${firmasParcialAntesV}→${firmasParcialV()} arg=${paramDe(dataParcialV)} withdrawAll=${firmasTodoAntesV}→${firmasV()}`);
+          check("V13 a withdraw no se le pasa ninguna dirección (el contrato usa balances[msg.sender])",
+            dataParcialV.length === 74 && !dataParcialV.toLowerCase().includes(DUEÑO.slice(2).toLowerCase()),
+            `len=${dataParcialV.length} data=${dataParcialV}`);
+          check("V14 el saldo de la chain bajó EXACTAMENTE el monto retirado desde la tabla",
+            saldoDespuesParcialV === esperadoParcialV && saldoDespuesParcialV !== saldoAntesParcialV,
+            `chain ${saldoAntesParcialV}→${saldoDespuesParcialV} esperado=${esperadoParcialV}`);
+          check("V15 y el resto sigue disponible (no se vació la cuenta)",
+            Number(saldoDespuesParcialV) > 0, `chain=${saldoDespuesParcialV}`);
+          check("V16 la tabla quedó con el saldo fresco de la chain, no con el de antes",
+            tablaViva().balanceEth === saldoDespuesParcialV && tablaViva().balanceEth !== saldoAntesParcialV &&
+              NORM(tablaBalancePintado.textContent) === saldoDespuesParcialV,
+            `tabla=${tablaViva().balanceEth} pintado="${NORM(tablaBalancePintado.textContent)}" chain=${saldoDespuesParcialV} (antes ${saldoAntesParcialV})`);
+
+          // V17. El veredicto queda VISIBLE en la isla que lo disparó, y el mismo
+          //      texto llegó a la otra isla que retira (una sola verdad).
+          check("V17 el veredicto «¡Retirado!» queda visible en la tabla",
+            tablaViva().withdrawStatus === "success" && tablaViva().withdrawMessage === "¡Retirado!" &&
+              tablaStatus.hidden === false && NORM(tablaStatus.textContent) === "¡Retirado!" &&
+              tablaStatus.classList.contains("is-success"),
+            `status=${tablaViva().withdrawStatus} msg="${tablaViva().withdrawMessage}" hidden=${tablaStatus.hidden} texto="${NORM(tablaStatus.textContent)}" clases=${tablaStatus.className}`);
+          check("V18 y el mismo veredicto se escribió en la otra isla que retira (una sola verdad para dos islas)",
+            panel.withdrawStatus === "success" && panel.withdrawMessage === "¡Retirado!" &&
+              NORM(panelWithdrawStatus.textContent) === "¡Retirado!",
+            `panel=${panel.withdrawStatus} "${NORM(panelWithdrawStatus.textContent)}"`);
+
+          // V19. Cancelar: colapsa la fila, limpia el input y no firma nada.
+          tablaBotonParte.click();
+          await sleep(200);
+          await escribirMonto(tablaMonto, MONTO_V);
+          const firmasAntesCancelarV = firmasParcialV();
+          tablaCancel.click();
+          await sleep(250);
+          check("V19 cancelar colapsa la fila, limpia el input y no firma nada",
+            tablaFilaParte.hidden === true && tablaMonto.value === "" && tablaBotonParte.hidden === false &&
+              firmasParcialV() === firmasAntesCancelarV &&
+              (await saldoOnChain(DUEÑO)) === saldoDespuesParcialV,
+            `filaHidden=${tablaFilaParte.hidden} input="${tablaMonto.value}" botonHidden=${tablaBotonParte.hidden} firmas=${firmasAntesCancelarV}→${firmasParcialV()}`);
+
+          // V20. El OPT-IN, otra vez, al final: apagado el permiso, la tabla deja
+          //      de ofrecer el retiro (el control negativo tiene que valer también
+          //      DESPUÉS de haber retirado, no sólo antes de empezar).
+          tablaViva().canWithdraw = false;
+          await sleep(250);
+          check("V20 apagado el permiso, la tabla vuelve a ser una página de lectura",
+            tablaRootV.querySelector(".hist-withdraw").hidden === true && tablaViva().canWithdraw === false,
+            `seccionHidden=${tablaRootV.querySelector(".hist-withdraw").hidden} canWithdraw=${tablaViva().canWithdraw}`);
+          tablaViva().canWithdraw = true;
+          await sleep(250);
+
+          // Y se le devuelve el saldo a la cuenta que el resto del harness sigue
+          // midiendo: A4 necesita que el dueño TENGA algo con qué intentar el
+          // segundo retiro (el que revierte).
+          await fetch("http://127.0.0.1:8545", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0", id: 1, method: "eth_sendTransaction",
+              params: [{
+                from: DONANTE_ANVIL, to: CONTRATO,
+                value: "0x" + (3000000000000000n).toString(16), // 0.003 ETH
                 data: "0x23024408" + DUEÑO.slice(2).padStart(64, "0"),
               }],
             }),
           }).then((r) => r.json());
-          check("W23 el test se preparó saldo para el modal (donación real, control de esta prueba)",
-            String(fund3.result ?? "").startsWith("0x"), JSON.stringify(fund3).slice(0, 160));
           await sleep(700);
-
-          navRoot.querySelector("#dashboardButton").click();
-          await sleep(1500);
-          const dashHost = doc.querySelector("whiskito-dashboard"); // la isla del modal "Mi Panel"
-          const dashHostRoot = dashHost.shadowRoot ?? dashHost;
-          const dashHostPartButton = dashHostRoot.querySelector("#withdrawPartButton");
-          const dashHostWithdrawButton = dashHostRoot.querySelector("#withdrawButton");
-          const dashHostPartRow = dashHostRoot.querySelector("#withdrawPart");
-          const dashHostAmount = dashHostRoot.querySelector("#withdrawAmount");
-          const dashHostPartError = dashHostRoot.querySelector("#withdrawPartError");
-          const dashHostConfirm = dashHostRoot.querySelector("#withdrawConfirmButton");
-          const dashHostCancel = dashHostRoot.querySelector("#withdrawCancelButton");
-          const dashHostWithdrawStatus = dashHostRoot.querySelector("#withdrawStatus");
-          const dashHostBalance = dashHostRoot.querySelector("#dashBalance");
-          const saldoModal = await saldoOnChain(DUEÑO);
-          check("W24 el modal «Mi Panel» abre con el saldo fresco de la chain y las dos vías de retiro",
-            dashHost.open === true && dashHost.balanceEth === saldoModal && Number(saldoModal) > 0 &&
-              Boolean(dashHostWithdrawButton && dashHostPartButton && dashHostPartRow && dashHostAmount && dashHostConfirm && dashHostCancel) &&
-              dashHostWithdrawButton.hidden === false && dashHostPartButton.hidden === false &&
-              NORM(dashHostBalance.textContent) === saldoModal,
-            `open=${dashHost.open} panel=${dashHost.balanceEth} chain=${saldoModal} pintado="${NORM(dashHostBalance?.textContent)}" hidden=${dashHostWithdrawButton?.hidden}/${dashHostPartButton?.hidden}`);
-          dashHostWithdrawButton.scrollIntoView({ block: "center", behavior: "instant" });
-          await sleep(250);
-          check("W25 los dos botones del modal son alcanzables y visibles (no tapados)",
-            alcanzableEn(dashHostRoot, dashHostWithdrawButton) && alcanzableEn(dashHostRoot, dashHostPartButton),
-            `todo=${alcanzableEn(dashHostRoot, dashHostWithdrawButton)}${centroDe(dashHostWithdrawButton)} parte=${alcanzableEn(dashHostRoot, dashHostPartButton)}${centroDe(dashHostPartButton)}`);
-
-          dashHostPartButton.click();
-          await sleep(200);
-          check("W26 el click despliega la fila en el modal, con el input vacío y el confirmar apagado",
-            dashHostPartRow.hidden === false && dashHostAmount.value === "" &&
-              dashHostAmount.placeholder === saldoModal && dashHostConfirm.disabled === true,
-            `filaHidden=${dashHostPartRow.hidden} input="${dashHostAmount.value}" placeholder="${dashHostAmount.placeholder}" disabled=${dashHostConfirm.disabled}`);
-          check("W27 el input, el confirmar y el cancelar del modal son alcanzables",
-            alcanzableEn(dashHostRoot, dashHostAmount) && alcanzableEn(dashHostRoot, dashHostConfirm) && alcanzableEn(dashHostRoot, dashHostCancel),
-            `input=${alcanzableEn(dashHostRoot, dashHostAmount)}${centroDe(dashHostAmount)} confirmar=${alcanzableEn(dashHostRoot, dashHostConfirm)}${centroDe(dashHostConfirm)} cancelar=${alcanzableEn(dashHostRoot, dashHostCancel)}${centroDe(dashHostCancel)}`);
-
-          await escribirMonto(dashHostAmount, "0");
-          const errorCeroModal = NORM(dashHostPartError.textContent);
-          const demasiadoModal = weiAeth((BigInt(Math.round(Number(saldoModal) * 1e9)) + 1n) * 10n ** 9n);
-          await escribirMonto(dashHostAmount, demasiadoModal);
-          check("W28 en el modal: 0 y un monto mayor al saldo quedan deshabilitados y avisan",
-            dashHostConfirm.disabled === true && errorCeroModal === "El monto tiene que ser mayor que 0" &&
-              NORM(dashHostPartError.textContent) === "No podés retirar más de lo que tenés" &&
-              dashHostPartError.hidden === false,
-            `0→"${errorCeroModal}" ${demasiadoModal}→"${NORM(dashHostPartError.textContent)}" disabled=${dashHostConfirm.disabled}`);
-          await escribirMonto(dashHostAmount, saldoModal);
-          check("W29 en el modal, exactamente el saldo habilita el confirmar",
-            dashHostConfirm.disabled === false && dashHostPartError.hidden === true,
-            `monto=${saldoModal} disabled=${dashHostConfirm.disabled} error="${NORM(dashHostPartError.textContent)}"`);
-
-          // 9. Retiro desde el modal: firma correcta, saldo fresco y el modal
-          //    SIGUE ABIERTO (no se cierra ni queda con el saldo de antes).
-          const MONTO_MODAL = "0.001";
-          await escribirMonto(dashHostAmount, MONTO_MODAL);
-          const saldoAntesModal = await saldoOnChain(DUEÑO);
-          const firmasModalAntes = firmasDe("0x2e1a7d4d").length;
-          const firmasTotalesAntesModal = firmasDe("0x853828b6").length;
-          dashHostConfirm.click();
-          await sleep(4000);
-          const firmasModal = firmasDe("0x2e1a7d4d");
-          const firmaModal = firmasModal[firmasModal.length - 1];
-          const dataModal = String(firmaModal?.params?.[0]?.data ?? "");
-          check("W30 el retiro desde el modal firma UNA vez withdraw(uint256) con el monto en wei",
-            firmasModal.length === firmasModalAntes + 1 && dataModal.startsWith("0x2e1a7d4d") &&
-              paramDe(dataModal) === MONTO_WEI && firmasDe("0x853828b6").length === firmasTotalesAntesModal,
-            `firmas ${firmasModalAntes}→${firmasModal.length} arg=${paramDe(dataModal)} withdrawAll=${firmasTotalesAntesModal}→${firmasDe("0x853828b6").length}`);
-          const saldoDespuesModal = await saldoOnChain(DUEÑO);
-          const esperadoModal = weiAeth(BigInt(Math.round(Number(saldoAntesModal) * 1e9)) * 10n ** 9n - MONTO_WEI);
-          check("W31 el saldo de la chain bajó EXACTAMENTE el monto retirado desde el modal",
-            saldoDespuesModal === esperadoModal && saldoDespuesModal !== saldoAntesModal,
-            `chain ${saldoAntesModal}→${saldoDespuesModal} esperado=${esperadoModal}`);
-          await sleep(1200); // el flujo relee el portfolio y, si el modal está abierto, lo recarga
-          check("W32 el modal SIGUE ABIERTO después del retiro",
-            dashHost.open === true && dashHostRoot.querySelector("#overlay")?.hidden === false,
-            `open=${dashHost.open} overlayHidden=${dashHostRoot.querySelector("#overlay")?.hidden}`);
-          check("W33 y quedó con el saldo fresco de la chain, no con el de antes",
-            dashHost.balanceEth === saldoDespuesModal && dashHost.balanceEth !== saldoAntesModal &&
-              NORM(dashHostBalance.textContent) === saldoDespuesModal,
-            `panel=${dashHost.balanceEth} pintado="${NORM(dashHostBalance.textContent)}" chain=${saldoDespuesModal} (antes ${saldoAntesModal})`);
-          check("W34 el veredicto queda visible en la isla del modal (y en la otra también)",
-            dashHost.withdrawStatus === "success" && NORM(dashHostWithdrawStatus.textContent) === "¡Retirado!" &&
-              dashHostWithdrawStatus.hidden === false &&
-              panel.withdrawStatus === "success" && NORM(panelWithdrawStatus.textContent) === "¡Retirado!" &&
-              panelWithdrawStatus.hidden === false,
-            `modal=${dashHost.withdrawStatus}"${NORM(dashHostWithdrawStatus.textContent)}"hidden=${dashHostWithdrawStatus.hidden} panel=${panel.withdrawStatus}"${NORM(panelWithdrawStatus.textContent)}"hidden=${panelWithdrawStatus.hidden}`);
-
-          // Cancelar en el modal: colapsa, limpia y no firma.
-          dashHostPartButton.click();
-          await sleep(200);
-          await escribirMonto(dashHostAmount, MONTO_MODAL);
-          const firmasAntesCancelarModal = firmasDe("0x2e1a7d4d").length;
-          dashHostCancel.click();
-          await sleep(250);
-          check("W35 cancelar en el modal colapsa la fila, limpia el input y no firma nada",
-            dashHostPartRow.hidden === true && dashHostAmount.value === "" && dashHostPartButton.hidden === false &&
-              firmasDe("0x2e1a7d4d").length === firmasAntesCancelarModal &&
-              (await saldoOnChain(DUEÑO)) === saldoDespuesModal,
-            `filaHidden=${dashHostPartRow.hidden} input="${dashHostAmount.value}" botonHidden=${dashHostPartButton.hidden} firmas=${firmasAntesCancelarModal}→${firmasDe("0x2e1a7d4d").length}`);
-
-          // Se cierra el modal (la ×) y se deja el estado como estaba: el
-          // resto de los bloques sigue con el panel en cero.
-          dashHostRoot.querySelector("#closeButton").click();
-          await sleep(400);
-          check("W36 la × cierra el modal y avisa al flujo (no queda abierto tapando el panel)",
-            dashHost.open === false && dashHostRoot.querySelector("#overlay")?.hidden === true,
-            `open=${dashHost.open} overlayHidden=${dashHostRoot.querySelector("#overlay")?.hidden}`);
           panel.balanceEth = "0";
           await sleep(200);
 
-
           check("H1f el botón de cerrar lo cierra", sharePanel?.hidden === true, `hidden=${sharePanel?.hidden}`);
+
           shareTrigger.click();
           await sleep(600);
           check("H1g el trigger lo vuelve a abrir",
@@ -1336,17 +1587,19 @@
             card2.shadowRoot.querySelector(".card-demo")?.hidden === true,
             `hidden=${card2.shadowRoot.querySelector(".card-demo")?.hidden}`);
 
-          // La otra mitad de la simetría: si no se puede retirar, NINGUNA de las
-          // dos islas ofrece las dos vías (ni la de todo ni la de a partes). El
-          // modal nace con `can-withdraw` en falso a propósito: es opt-in.
-          const dashRoot2 = doc2.querySelector("whiskito-dashboard").shadowRoot;
+          // La otra mitad de la simetría: si no se puede retirar, NINGUNA isla
+          // ofrece retirar. En la tabla del historial eso es además opt-in: sin el
+          // permiso, la sección de retiro no se dibuja (el control negativo de
+          // ese opt-in está en V1/V20, sobre la tabla de la vista del
+          // profesional). Y en ESTA página la tabla ni siquiera está montada: es
+          // de la vista del profesional y de `/historial`, no de la landing con
+          // dueño en la URL —que se queda en la del visitante, como P12 y ahora
+          // también N30—.
           check("R6b el donante tampoco tiene «Retirar una parte» en ninguna de las dos islas",
             panelRoot2.querySelector("#withdrawPartButton").hidden === true &&
               panelRoot2.querySelector("#withdrawPart").hidden === true &&
-              dashRoot2.querySelector("#withdrawButton").hidden === true &&
-              dashRoot2.querySelector("#withdrawPartButton").hidden === true &&
-              dashRoot2.querySelector("#withdrawPart").hidden === true,
-            `panel=${panelRoot2.querySelector("#withdrawButton").hidden}/${panelRoot2.querySelector("#withdrawPartButton").hidden}/${panelRoot2.querySelector("#withdrawPart").hidden} modal=${dashRoot2.querySelector("#withdrawButton").hidden}/${dashRoot2.querySelector("#withdrawPartButton").hidden}/${dashRoot2.querySelector("#withdrawPart").hidden}`);
+              doc2.querySelector("whiskito-history-table") === null,
+            `panel=${panelRoot2.querySelector("#withdrawButton").hidden}/${panelRoot2.querySelector("#withdrawPartButton").hidden}/${panelRoot2.querySelector("#withdrawPart").hidden} tabla=${Boolean(doc2.querySelector("whiskito-history-table"))}`);
 
           // Donar: el calldata tiene que llevar la dirección del DUEÑO, y salir
           // de la wallet del DONANTE. Esa es la separación, al nivel del byte.
@@ -1366,7 +1619,7 @@
             (envios[0]?.params?.[0]?.from ?? "").toLowerCase() === DONANTE,
             `from=${envios[0]?.params?.[0]?.from}`);
 
-          // ── N. Modo demo (el default) y "Mi Panel" ────────────────────
+          // ── N. Modo demo (el default) ─────────────────────────────────
           // Una tercera página: la misma ruta `/u/0x…` pero SIN `demo=0`, o sea
           // lo que ve cualquier visitante. Acá pasa lo contrario que en R: con la
           // wallet conectada, donar NO firma nada y no deja ningún rastro local.
@@ -1388,8 +1641,6 @@
           const navRoot3 = doc3.querySelector("whiskito-navbar").shadowRoot;
           const card3 = doc3.querySelector("whiskito-donate-card");
           const cardRoot3 = card3.shadowRoot;
-          const dash3 = doc3.querySelector("whiskito-dashboard");
-          const dashRoot3 = dash3.shadowRoot;
           // El resumen de ESTA página (no el de la landing, que acumula las
           // donaciones reales de los bloques anteriores). Se mide antes y después
           // de la donación demo: lo que importa es que no se mueva.
@@ -1402,12 +1653,19 @@
           check("N1 la tarjeta avisa que la donación es una demo",
             cardRoot3.querySelector(".card-demo")?.hidden === false,
             `hidden=${cardRoot3.querySelector(".card-demo")?.hidden}`);
-          check("N2 sin wallet no hay botón de Mi Panel",
-            navRoot3.querySelector("#dashboardButton").hidden === true);
           check("N2b el navbar ya no tiene dos «Mi Panel»: el ancla es «Resumen»",
             NORM([...navRoot3.querySelectorAll(".nav-links a")].map((a) => a.textContent).join("|"))
               === "Donar|Cómo funciona|Resumen|Preguntas",
             NORM([...navRoot3.querySelectorAll(".nav-links a")].map((a) => a.textContent).join("|")));
+          // El otro modo del navbar (el de una página aparte, con `base`) tiene
+          // su control de volver al inicio; en la LANDING —que es la de esta
+          // página— ese control no existe, y es lo que esta aserción protege.
+          const backHome3 = navRoot3.querySelector("#backHome");
+          check("N2c en la landing el navbar NO muestra «Volver al inicio»",
+            Boolean(backHome3) && backHome3.hidden === true &&
+              win3.getComputedStyle(backHome3).display === "none" &&
+              backHome3.getBoundingClientRect().width === 0,
+            `existe=${Boolean(backHome3)} hidden=${backHome3?.hidden} display=${backHome3 && win3.getComputedStyle(backHome3).display} ancho=${backHome3?.getBoundingClientRect().width}`);
 
           // Wallet falsa que SÓLO sabe identificarse: si la app intentara firmar,
           // el método no existe y el flujo termina en error. Es a propósito: el
@@ -1424,9 +1682,34 @@
           };
           navRoot3.querySelector("#connectButton").click();
           await sleep(1500);
-          check("N3 al conectar aparece el botón de Mi Panel",
-            navRoot3.querySelector("#dashboardButton").hidden === false,
-            `hidden=${navRoot3.querySelector("#dashboardButton").hidden}`);
+
+          // ── P10-P12. La ley §2.12: el link con dueño NO cambia de vista ─
+          // Este frame es `/src/index.html?u=<dueño>` y conecta al dueño para el
+          // bloque N. La URL nombra un dueño, así que la vista se QUEDA en la del
+          // visitante aunque haya cuenta conectada: es el link que se comparte y
+          // el dueño tiene que seguir pudiendo probar la donación demo desde la
+          // tarjeta (que la vista del profesional le escondería). Se cuelga de la
+          // espera de 1500 ms que la conexión acaba de hacer.
+          check("P10 en una página con ?u= la cuenta conectada NO cambia la vista",
+            !doc3.body.classList.contains("is-profesional"),
+            `class="${doc3.body.className}"`);
+          // El host de la tarjeta es `display: contents`, así que su display
+          // propio no delata que un ancestro la esconda (lo que pasaría con el
+          // `display: none` de `whiskito-how-it-works` en la vista del
+          // profesional): se mira la cadena de ancestros.
+          const escondeCard3 = (() => {
+            for (let n = card3; n; n = n.parentElement ?? n.getRootNode()?.host ?? null) {
+              if (win3.getComputedStyle(n).display === "none") return `${n.tagName ?? "?"}${n.id ? "#" + n.id : ""}`;
+            }
+            return "";
+          })();
+          check("P11 la tarjeta de donación sigue visible (ningún ancestro la esconde)",
+            win3.getComputedStyle(card3).display !== "none" && escondeCard3 === "",
+            `card=${win3.getComputedStyle(card3).display} lo esconde=${escondeCard3 || "nadie"}`);
+          check("P12 las islas del profesional (saludo y tabla) NO están montadas en la página con dueño",
+            doc3.querySelector("whiskito-pro-greeting") === null &&
+              doc3.querySelector("whiskito-history-table") === null,
+            `saludo=${Boolean(doc3.querySelector("whiskito-pro-greeting"))} tabla=${Boolean(doc3.querySelector("whiskito-history-table"))}`);
 
           card3.ethPrice = 2000;
           const input3 = cardRoot3.querySelector("#ehtAmount");
@@ -1452,90 +1735,24 @@
             win3.localStorage.getItem("whiskito:demo-ledger:v1") === null,
             `ledger=${win3.localStorage.getItem("whiskito:demo-ledger:v1")}`);
 
-          // ── Mi Panel: la historia REAL, leída de la chain ─────────────
-          // El panel muestra lo que recibió LA CUENTA CONECTADA, y esas filas son
-          // eventos `Funded` de la chain. Se abre desde el navbar (botón → evento
-          // → app.js → lectura → isla → tabla) y primero tiene que estar VACÍO:
-          // esta cuenta es fresca, no puede tener historia.
-          check("N9 Mi Panel arranca cerrado", dash3.open === false);
-          navRoot3.querySelector("#dashboardButton").click();
-          await sleep(900);
-          check("N10 el botón del navbar abre Mi Panel", dash3.open === true);
-          const cajaDash = dashRoot3.querySelector("#dialog")?.getBoundingClientRect();
-          check("N10b y el panel entra entero en la ventana (no se sale por ningún lado)",
-            Boolean(cajaDash) && cajaDash.top >= -1 && cajaDash.left >= -1 &&
-              cajaDash.right <= win3.innerWidth + 1 && cajaDash.bottom <= win3.innerHeight + 1,
-            `dialog=${cajaDash ? [cajaDash.left, cajaDash.top, cajaDash.width, cajaDash.height].map(Math.round).join(",") : "null"} ventana=${win3.innerWidth}x${win3.innerHeight}`);
-          eq("N10c una cuenta sin donaciones muestra la tabla vacía",
-            dashRoot3.querySelectorAll("#donationsBody tr").length, 0);
-          check("N10d y lo dice con su estado vacío (no con un error)",
-            dashRoot3.querySelector(".dash-empty")?.hidden === false &&
-              !dashRoot3.querySelector("#dashSummary")?.classList.contains("is-error"),
-            `empty=${dashRoot3.querySelector(".dash-empty")?.hidden} resumen=${NORM(dashRoot3.querySelector("#dashSummary")?.textContent)}`);
-          doc3.dispatchEvent(new win3.KeyboardEvent("keydown", { key: "Escape" }));
-          await sleep(300);
+          // ── La tabla del historial NO pertenece a esta página ──────────
+          // El permiso de retirar de la tabla es opt-in y la tabla sólo se monta
+          // en la vista del profesional (la de la landing sin dueño en la URL) y
+          // en `/historial`. Esta página nombra un dueño, así que se queda en la
+          // vista del visitante: la tabla no está montada, y por lo tanto no hay
+          // ningún retiro que ofrecer. Es el mismo contrato que P12.
+          check("N30 en la página con dueño la tabla del historial no está montada (no hay retiro que ofrecer)",
+            doc3.querySelector("whiskito-history-table") === null,
+            `tabla=${Boolean(doc3.querySelector("whiskito-history-table"))}`);
 
-          // Ahora sí: una donación REAL para esa cuenta. `fund(address)` desde la
-          // cuenta 0 de anvil (está desbloqueada, así que la firma el nodo) por
-          // 0.002 ETH: con el oráculo en 2000 USD son 4.00 USD, que es lo que el
-          // evento graba y lo que la tabla tiene que mostrar.
-          const FUND_SELECTOR = "0x23024408";
-          const reciboReal = await fetch("http://127.0.0.1:8545", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jsonrpc: "2.0", id: 1, method: "eth_sendTransaction",
-              params: [{
-                from: "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
-                to: CONTRATO_JS,
-                value: "0x" + (2000000000000000n).toString(16),
-                data: FUND_SELECTOR + FRESCO.slice(2).padStart(64, "0"),
-              }],
-            }),
-          }).then((r) => r.json());
-          check("N11 la donación real entró a la chain (control de esta prueba)",
-            String(reciboReal.result ?? "").startsWith("0x"),
-            JSON.stringify(reciboReal).slice(0, 160));
-          await sleep(500);
-
-          navRoot3.querySelector("#dashboardButton").click();
-          await sleep(1200);
-          const filasTabla = [...dashRoot3.querySelectorAll("#donationsBody tr")];
-          eq("N12 la tabla lista la donación REAL de la chain", filasTabla.length, 1);
-          const textoFila = NORM(filasTabla[0]?.textContent);
-          // La dirección corta conserva el checksum que devuelve la wallet
-          // (`0xf39F...2266`), así que se compara sin distinguir mayúsculas.
-          check("N13 la fila trae el donante, el monto y el USD que grabó el evento",
-            textoFila.toLowerCase().includes("0xf39f...2266") &&
-              textoFila.includes("0.002") && textoFila.includes("4.00"),
-            textoFila);
-          check("N14 y cuándo, en tiempo relativo", /hace/.test(textoFila), textoFila);
-          check("N14b el resumen suma esa ronda",
-            NORM(dashRoot3.querySelector("#dashSummary")?.textContent).includes("1 ronda") &&
-              NORM(dashRoot3.querySelector("#dashSummary")?.textContent).includes("0.002 POL"),
-            `resumen=${dashRoot3.querySelector("#dashSummary")?.textContent}`);
-          check("N14c el panel dice de qué cuenta son las donaciones",
-            NORM(dashRoot3.querySelector("#dashAddress")?.textContent ?? "").toLowerCase() ===
-              `${FRESCO.slice(0, 6)}...${FRESCO.slice(-4)}`.toLowerCase(),
-            `address=${dashRoot3.querySelector("#dashAddress")?.textContent} esperaba=${FRESCO.slice(0, 6)}...${FRESCO.slice(-4)}`);
-          check("N14d Mi Panel no dice «demo» en ninguna parte (las donaciones son reales)",
-            !/demo/i.test(dashRoot3.querySelector("#dialog")?.textContent ?? ""),
-            `texto=${NORM(dashRoot3.querySelector("#dialog")?.textContent ?? "").slice(0, 90)}`);
-          doc3.dispatchEvent(new win3.KeyboardEvent("keydown", { key: "Escape" }));
-          await sleep(300);
-          check("N15 Escape cierra Mi Panel", dash3.open === false);
-          navRoot3.querySelector("#dashboardButton").click();
-          await sleep(500);
-          dashRoot3.querySelector("#closeButton").click();
-          await sleep(300);
-          check("N16 el botón de cerrar también cierra", dash3.open === false);
-          navRoot3.querySelector("#dashboardButton").click();
-          await sleep(400);
           navRoot3.querySelector("#disconnectButton").click();
           await sleep(700);
-          check("N17 al desconectar, Mi Panel se cierra y su botón desaparece",
-            dash3.open === false && navRoot3.querySelector("#dashboardButton").hidden === true,
-            `open=${dash3.open} hidden=${navRoot3.querySelector("#dashboardButton").hidden}`);
+          // La otra mitad del contrato, con la espera de 700 ms que la desconexión
+          // ya tenía: al desconectar la clase se va (y en esta página nunca
+          // estuvo, porque la URL nombra al dueño).
+          check("P13 tras desconectar en la página con dueño tampoco queda is-profesional",
+            !doc3.body.classList.contains("is-profesional"),
+            `class="${doc3.body.className}"`);
 
           // ── N18. En demo, el DUEÑO también puede probar la donación ───
           // La guardia de auto-donación existe para no firmar una donación a uno
@@ -1622,7 +1839,7 @@
           // quedó sin `walletClient` y por eso no puede salir ninguna firma. NO
           // son evidencia de la guarda `requireSigningNetwork` de `tx.js`: con
           // `walletClient` en `undefined`, `fund()` entra por el atajo
-          // `if (demo || !wallet)` de `src/js/solidity-functions.js:171` y
+          // `if (demo || !wallet)` de `src/js/solidity/solidity-functions.js:171` y
           // devuelve el recibo demo —nunca se llega a un camino de firma—. La
           // evidencia de esa guarda son G2h/G2i (wallet VIVA y desajuste avisado
           // por `chainChanged`). Acá cada aserción falla si se pide firmar, así
@@ -1836,6 +2053,50 @@
               pedidosG2d.every((p) => p.method !== "eth_sendTransaction"),
             `estadoPre=${estadoPreG2d} estadoPost=${navbarG2d.connectionState} suscripciones=${(oyentesG2d.get("chainChanged") ?? []).length} cambios=${pedidosG2d.filter((p) => p.method === "wallet_switchEthereumChain").length} firmas=${pedidosG2d.filter((p) => p.method === "eth_sendTransaction").length}`);
 
+          // ── Precondición de L y M: la landing del VISITANTE ───────────
+          // L4 (el icono del hero) y M2/M6 (la radio) siempre midieron la landing
+          // del visitante; con el dueño conectado desde H esas secciones quedan
+          // ocultas y las tres caen. El dueño ya quedó verificado en H/W/N: se
+          // desconecta acá (misma espera que C, 600 ms; el click es seguro porque
+          // la revocación traga los errores) y L y M recuperan su precondición.
+          navRoot.querySelector("#disconnectButton").click();
+          await sleep(600);
+          check("P8 al desconectar en la landing, la vista del profesional se apaga",
+            !doc.body.classList.contains("is-profesional"),
+            `class="${doc.body.className}"`);
+          check("P9 y las DOS islas del profesional se DESMONTAN (la landing del visitante vuelve a ser el DOM del HTML)",
+            doc.querySelector("whiskito-pro-greeting") === null &&
+              doc.querySelector("whiskito-history-table") === null,
+            (() => {
+              const saludo = doc.querySelector("whiskito-pro-greeting");
+              const tabla = doc.querySelector("whiskito-history-table");
+              if (!saludo && !tabla) return "desmontadas";
+              return `quedaron montadas:${saludo ? ` saludo(display=${win.getComputedStyle(saludo).display})` : ""}${tabla ? ` tabla(display=${win.getComputedStyle(tabla).display})` : ""}`;
+            })());
+
+          // Y la precondición de la OTRA isla que mide L2: la tabla del historial
+          // se desmonta al volver a la vista del visitante (P9 acaba de
+          // verificarlo), así que L2 —que cuenta los iconos hidratados de cada
+          // isla— la mediría ausente. Se monta un host suelto SÓLO para la
+          // medición y se saca al terminar L: el estado de la app no se toca (la
+          // tabla queda `display:none` por CSS, y ni el flujo ni el router la
+          // ven). Es el mismo criterio con el que L5 recupera su precondición.
+          const tablaSonda = doc.createElement("whiskito-history-table");
+          doc.body.append(tablaSonda);
+          await sleep(120);
+
+          // Y una precondición MÁS de L, que también estaba heredada: L5 pisa el
+          // marcador del navbar (`state = "connected"`) y mira sus iconos, pero el
+          // navbar sólo se considera conectado con `state === "connected"` Y
+          // `account !== ""` (whiskito-navbar.js). Desconectado arriba, la cuenta
+          // quedó vacía y L5 mediría el estado vacío en vez del marcador. Se le
+          // devuelve la cuenta que tenía mientras el frame estaba conectado: es
+          // una propiedad de la ISLA, así que no toca el estado de la app —que
+          // sigue desconectada y en la vista del visitante, que es lo que L4 y M
+          // necesitan—. La aserción no se toca: se le devuelve su precondición.
+          doc.querySelector("whiskito-navbar").account = DUEÑO;
+          await sleep(80);
+
           // ── L. Iconos: Lucide hidratado, y ningún emoji suelto ────
           // El objetivo del cambio era sacar los iconos hardcodeados: acá se
           // comprueba que se hidrataron de verdad —incluidas las 4 islas, que
@@ -1843,7 +2104,7 @@
           // el usuario ve. Los ★ del cartel y los 🥃 de SHARE_TEXT/SHARE_TITLE no
           // están en el rango: son tipografía y copy de mensaje, no iconos.
           const EMOJI = /[\u{1F300}-\u{1FAFF}\u{26A0}\u{26D3}\u{2708}\u{2B07}\u{2713}\u{2714}]/gu;
-          const islasConSombra = ["whiskito-navbar", "whiskito-donate-card", "whiskito-panel", "whiskito-share-card", "whiskito-radio", "whiskito-dashboard"];
+          const islasConSombra = ["whiskito-navbar", "whiskito-donate-card", "whiskito-panel", "whiskito-share-card", "whiskito-radio", "whiskito-history-table"];
           const raices = [doc, ...islasConSombra.map((n) => doc.querySelector(n)?.shadowRoot).filter(Boolean)];
 
           const sinHidratar = raices.flatMap((r) => [...r.querySelectorAll("i[data-lucide]")])
@@ -1861,9 +2122,19 @@
           // icono adentro y además se pinta con `textContent` (le pasó a
           // #copyButton), `update()` —que corre justo después de hidratar— le
           // saca el SVG y el conteo baja.
-          // (El navbar sumó el icono del botón "Mi Panel" y la tarjeta el del
-          // aviso de demo; el dashboard es nuevo y lleva 2: el recibo y la ×.)
-          const ESPERADOS = { "whiskito-navbar": 4, "whiskito-donate-card": 7, "whiskito-panel": 6, "whiskito-share-card": 15, "whiskito-radio": 8, "whiskito-dashboard": 2 };
+          // (El navbar son SUS TRES iconos: el vaso, el de conectar y el del
+          // marcador de conectado —el control "Volver al inicio" sólo existe con
+          // `base`, o sea fuera de la landing, y N2c exige que acá no esté—. La
+          // tarjeta lleva el del aviso de demo y la tabla del historial 3: el del
+          // encabezado, el de conectar y el de "Retirar todo".)
+          // El navbar son 3: el template tiene cuatro marcadores (vaso, el del
+          // control de volver —que vive en un <template data-back-icon> y sólo se
+          // clona con `base`, o sea fuera de la landing—, el de conectar y el del
+          // marcador de conectado), y acá el control de volver no se monta porque
+          // el navbar de la landing no tiene `base` (N2c exige que `backHome` esté
+          // oculto). Antes eran 4 porque contaba el icono del botón "Mi Panel",
+          // que se borró con el modal.
+          const ESPERADOS = { "whiskito-navbar": 3, "whiskito-donate-card": 7, "whiskito-panel": 6, "whiskito-share-card": 15, "whiskito-radio": 8, "whiskito-history-table": 3 };
           const conteos = Object.entries(ESPERADOS).map(([host, esperado]) => ({
             host, esperado,
             hay: doc.querySelector(host)?.shadowRoot?.querySelectorAll("svg.icon").length ?? -1,
@@ -1903,6 +2174,11 @@
           check("L5 el marcador de estado sigue gobernando los iconos del navbar",
             Boolean(iconoWallet && iconoCheck) && enConectado && enDesconectado,
             `conectado=${enConectado} desconectado=${enDesconectado}`);
+
+          // La tabla-sonda ya cumplió su única función (L2): se saca para que M
+          // vuelva a ver la landing del visitante tal como la dejó el flujo.
+          tablaSonda.remove();
+          await sleep(80);
 
           // ── M. La radio ───────────────────────────────────────────
           // Se prueban las reglas de producto de §6.1 que sí son deterministas:

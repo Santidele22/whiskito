@@ -136,9 +136,9 @@ global se rompe **en silencio** en el ancho que nadie mira.
 - **Un flex item se encoge, y su `overflow: hidden` recorta el contenido.** En una ventana de 1000x600 la tarjeta medía 396x287 con un QR de 220px que terminaba en y=408: el QR salía **cortado por la mitad** y no se podía escanear. Se detecta pasando `zbarimg` a una **captura hecha en ventana baja**: si el QR está entero, el decodificador lo lee de la pantalla; si está recortado, falla. Hay que probar los dos tamaños, no sólo el cómodo.
 - **`probe.html`** (medir cajas, `position`, `overflow` y si el panel scrollea, a un viewport dado): `.../probe.html?w=1000&h=600`. Cuando una captura "se ve rara", esto convierte la sospecha en números.
 
-## Clase 6 — datos reales de la chain (`src/config.js`)
+## Clase 6 — datos reales de la chain (`src/js/config/config.js`)
 
-La configuración vive en un módulo hoja, `src/js/config.js`, con dos secciones:
+La configuración vive en un módulo hoja, `src/js/config/config.js`, con dos secciones:
 
 - **`NETWORKS`** por `chainId`: dónde está el contrato, el oráculo, el RPC y el
   explorador. Es configuración: no se puede derivar y cambia según dónde esté
@@ -277,7 +277,7 @@ root `src` + el plugin `sharedLinkRoute`) en un puerto libre, y `serve.py` en el
 
 ### Control negativo
 
-Se rompió a propósito **una** pieza de la cadena: en `src/js/chain.js`, el método
+Se rompió a propósito **una** pieza de la cadena: en `src/js/solidity/chain.js`, el método
 que pide el selector pasó a llamarse `wallet_requestPermissions-ROTO` (o sea: la
 app deja de abrir el selector y vuelve a quedar pegada a una cuenta, que es el
 bug original). La cabeza del veredicto crudo (las 4 que fallan; las otras 41

@@ -1,17 +1,17 @@
 // ── PÁGINA DE DONACIÓN (`/u/0x…`) ────────────────────────────────────
-import { WhiskitoDonateCard } from "../components/whiskito-donate-card.js";
+import { WhiskitoDonateCard } from "../../components/whiskito-donate-card.js";
 
-import { WhiskitoTxModal } from "../components/whiskito-tx-modal.js";
+import { WhiskitoTxModal } from "../../components/whiskito-tx-modal.js";
 
-import * as islands from "./islands.js";
+import * as islands from "../dom/islands.js";
 
 import {
   canDonate as canDonateRole,
   resolvePageOwner,
   resolveViewerRole,
-} from "./viewer-role.js";
+} from "../roles/viewer-role.js";
 
-import { DEMO_ETH_PRICE } from "./constants.js";
+import { DEMO_ETH_PRICE } from "../config/constants.js";
 
 
 import {
@@ -24,10 +24,10 @@ import {
   onWalletChainChange,
   startReadClient,
   switchWalletAccount,
-} from "./chain.js";
+} from "../solidity/chain.js";
 
 //CONTRATO: leer el precio y donar.
-import { fund, readEthPrice } from "./solidity-functions.js";
+import { fund, readEthPrice } from "../solidity/solidity-functions.js";
 
 // Mismo registro con guarda que `components/index.js`: `define` una sola vez.
 if (!customElements.get("whiskito-donate-card")) {

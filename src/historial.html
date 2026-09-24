@@ -3,11 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      name="description"
-      content="Whiskito — Invitá o recibí donaciones en POL, directo entre wallets. Sin registro, sin comisiones, sin intermediarios. Como Cafecito, pero en blockchain."
-    />
-    <title>Whiskito — Invitame un whiskito en POL</title>
+    <title>Whiskito — Historial de donaciones</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -24,18 +20,9 @@
       }
     </script>
   </head>
-  <body>
+  <body class="history-page">
     <whiskito-navbar></whiskito-navbar>
-    <whiskito-hero></whiskito-hero>
-    <whiskito-how-it-works></whiskito-how-it-works>
-    <whiskito-panel id="panel"></whiskito-panel>
-    <whiskito-trust></whiskito-trust>
-    <whiskito-faq></whiskito-faq>
-    <whiskito-footer></whiskito-footer>
-
-    <whiskito-radio></whiskito-radio>
-    <whiskito-share-card></whiskito-share-card>
-
-    <script type="module" src="./js/entries/main.js"></script>
+    <whiskito-history-table></whiskito-history-table>
+    <script type="module" src="./js/entries/historial.js"></script>
   </body>
 </html>

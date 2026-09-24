@@ -1,4 +1,7 @@
 import { WhiskitoElement } from "./base-element.js";
+// El icono del control de volver se hidrata cuando se monta (ver `render()`):
+// se usa el mismo hidratador de siempre —el que ya usa la base—, no el barril.
+import { hydrateIcons } from "../js/dom/icons.js";
 
 /** Texto del botón según el estado de conexión. */
 const LABELS = {
@@ -9,7 +12,7 @@ const LABELS = {
 };
 
 export class WhiskitoNavbar extends WhiskitoElement {
-  static observedAttributes = ["state", "address"];
+  static observedAttributes = ["state", "address", "base"];
 
   static styles = /* css */ `
     /* El reset universal de styles.css no cruza la frontera del shadow root: se
@@ -73,6 +76,13 @@ export class WhiskitoNavbar extends WhiskitoElement {
     .btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    /* El display propio de .btn (inline-flex) le gana al [hidden] del
+       navegador: el botón de conectar se oculta en una página aparte, así que
+       hay que reponer el ocultado o se vería igual. */
+    .btn[hidden] {
+      display: none;
     }
 
     .btn-primary {
@@ -197,31 +207,36 @@ export class WhiskitoNavbar extends WhiskitoElement {
       display: none;
     }
 
-    /* Mi Panel: mismo look de cartel que "Desconectar", con el acento mostaza.
-       Sólo existe con la wallet conectada. */
-    .nav-dashboard {
+    /* Volver al inicio: el control de una página APARTE (con base), no de la
+       landing. Es un enlace de navegación —va a la landing, no dispara nada—,
+       con el look de cartel de "Desconectar". */
+    .nav-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       padding: 9px 18px;
       font-family: var(--cond);
       font-weight: 700;
       font-size: 1rem;
       letter-spacing: 1.5px;
       text-transform: uppercase;
-      color: var(--mustard);
+      color: var(--ink);
       background: transparent;
       border: 2px solid var(--ink);
       border-radius: 4px;
+      text-decoration: none;
       cursor: pointer;
       transition: color 0.15s, border-color 0.15s;
     }
 
-    .nav-dashboard:hover {
+    .nav-back:hover {
       color: var(--blues-red);
       border-color: var(--blues-red);
     }
 
-    /* El display propio le gana al [hidden] del navegador: sin esto el botón
-       se vería también sin wallet. */
-    .nav-dashboard[hidden] {
+    /* El display propio le gana al [hidden] del navegador: en la landing el
+       control no existe y tiene que quedar oculto de verdad. */
+    .nav-back[hidden] {
       display: none;
     }
 
@@ -236,7 +251,7 @@ export class WhiskitoNavbar extends WhiskitoElement {
         padding: 9px 12px;
         font-size: 0.8rem;
       }
-      .nav-dashboard {
+      .nav-back {
         padding: 9px 12px;
         font-size: 0.8rem;
       }
@@ -251,25 +266,39 @@ export class WhiskitoNavbar extends WhiskitoElement {
         <span class="logo-text">Whiskito</span>
       </div>
       <ul class="nav-links">
-        <li><a href="#donar">Donar</a></li>
-        <li><a href="#como-funciona">Cómo funciona</a></li>
-        <li><a href="#panel">Resumen</a></li>
-        <li><a href="#faq">Preguntas</a></li>
+        <li><a href="#donar" data-attr="href:donarHref">Donar</a></li>
+        <li><a href="#como-funciona" data-attr="href:comoFuncionaHref">Cómo funciona</a></li>
+        <li><a href="#panel" data-attr="href:panelHref">Resumen</a></li>
+        <li><a href="#faq" data-attr="href:faqHref">Preguntas</a></li>
       </ul>
       <div class="nav-actions">
-        <button
-          id="dashboardButton"
-          class="nav-dashboard"
-          type="button"
-          title="Ver todas las donaciones que recibiste"
-          data-attr="hidden:notConnected"
+        <!-- Volver al inicio: el control de una página APARTE. Con base vacía
+             (la landing) queda oculto y el navbar es exactamente el de siempre.
+             Va acá y NO dentro de .nav-links: los cuatro links de la landing
+             tienen que seguir siendo los mismos cuatro (y en ese orden).
+             Sin href en el template: lo escribe el pintado con la base del
+             sitio (backHref), que en la landing es vacío. -->
+        <a
+          id="backHome"
+          class="nav-back"
+          hidden
+          data-attr="hidden:backHidden; href:backHref"
         >
-          <i data-lucide="receipt"></i> Mi Panel
-        </button>
+          Volver al inicio
+        </a>
+        <!-- El icono de ese control, en un <template>: sus nodos NO están en el
+             árbol, así que hydrateIcons —que corre al montar sobre el shadow
+             root— no lo convierte en SVG en la LANDING, donde el control no
+             existe (si estuviera suelto en el template, el navbar pasaría de 4
+             iconos a 5 en su modo por defecto). Se clona y se hidrata sólo
+             cuando el control se muestra (ver render()). -->
+        <template data-back-icon
+          ><i data-lucide="arrow-left" aria-hidden="true"></i
+        ></template>
         <button
           id="connectButton"
           class="btn btn-primary btn-nav"
-          data-attr="disabled:isBusy; title:title"
+          data-attr="hidden:connectHidden; disabled:isBusy; title:title"
         >
           <i data-lucide="wallet" data-attr="hidden:isConnected"></i>
           <i data-lucide="circle-check" data-attr="hidden:notConnected"></i>
@@ -283,7 +312,7 @@ export class WhiskitoNavbar extends WhiskitoElement {
           class="nav-disconnect"
           type="button"
           title="Elegir otra cuenta en la wallet"
-          data-attr="hidden:notConnected; disabled:isBusy"
+          data-attr="hidden:switchHidden; disabled:isBusy"
         >
           Cambiar cuenta
         </button>
@@ -292,7 +321,7 @@ export class WhiskitoNavbar extends WhiskitoElement {
           class="nav-disconnect"
           type="button"
           title="Desconectar la wallet"
-          data-attr="hidden:notConnected; disabled:isBusy"
+          data-attr="hidden:disconnectHidden; disabled:isBusy"
         >
           Desconectar
         </button>
@@ -318,10 +347,35 @@ export class WhiskitoNavbar extends WhiskitoElement {
     this.setAttribute("address", v);
   }
 
+  /**
+   * Base del sitio donde vive la landing. **Vacía (o ausente) = la LANDING**,
+   * que es el modo por defecto y el de siempre. Con una base, el navbar es el de
+   * una página APARTE (`/historial`): los cuatro links apuntan a la landing con
+   * su ancla y aparece el control de volver al inicio.
+   *
+   * Las barras finales se recortan acá —una sola vez, para todos los links— para
+   * no producir `…//#donar`.
+   */
+  get base() {
+    return (this.getAttribute("base") ?? "").replace(/\/+$/, "");
+  }
+  set base(v) {
+    this.setAttribute("base", String(v ?? ""));
+  }
+
   /** Valores a pintar (hook de pintado de la base). */
   get state() {
-    const { connectionState, account } = this;
+    const { connectionState, account, base } = this;
     const isConnected = connectionState === "connected" && account !== "";
+    /**
+     * ¿El navbar está FUERA de la landing? (`base` no vacía.)
+     *
+     * En ese modo: los links llevan a la landing con su ancla, aparece el control
+     * de volver y los controles de wallet se ocultan. Se ocultan porque en una
+     * página aparte no hay landing a la que scrollear, y porque esa página ya
+     * ofrece conectar la wallet cuando le falta la dirección.
+     */
+    const standalone = base !== "";
     return {
       label: LABELS[connectionState] ?? LABELS.disconnected,
       isBusy: connectionState === "connecting",
@@ -334,7 +388,61 @@ export class WhiskitoNavbar extends WhiskitoElement {
         connectionState === "unsupported"
           ? "No detectamos una wallet en este navegador"
           : "",
+      // Las anclas: en la landing son las de siempre (`#donar`, …); con base,
+      // la landing MÁS su ancla.
+      donarHref: `${base}#donar`,
+      comoFuncionaHref: `${base}#como-funciona`,
+      panelHref: `${base}#panel`,
+      faqHref: `${base}#faq`,
+      // El control de volver apunta a la base PELADA (el inicio, sin ancla).
+      backHref: standalone ? base : "",
+      backHidden: !standalone,
+      /**
+       * UNA clave por elemento, no dos pares `hidden:`.
+       *
+       * El bucle de `data-attr` de la base procesa los pares EN ORDEN y el último
+       * gana: `hidden:notConnected; hidden:standalone` haría que el segundo
+       * `removeAttribute("hidden")` borre lo que puso el primero. Por eso el modo
+       * y el estado de conexión se combinan acá: en la landing (`standalone`
+       * falso) el resultado es EXACTAMENTE el de siempre.
+       *
+       * Las cuatro claves son las mismas de antes de que existiera "Mi Panel":
+       * conectar es el único control que no depende de la conexión, y los tres de
+       * wallet (cambiar cuenta, desconectar y —cuando existía— el panel) siguen
+       * pidiendo las dos cosas: estar en la landing y tener cuenta.
+       */
+      connectHidden: standalone,
+      switchHidden: standalone || !isConnected,
+      disconnectHidden: standalone || !isConnected,
     };
+  }
+
+  /**
+   * El icono del control de volver se monta recién cuando el control se muestra.
+   *
+   * Por qué no está suelto en el template: el template se hidrata ENTERO al
+   * montar (`hydrateIcons` corre sobre el shadow root), así que un
+   * `<i data-lucide>` suelto se convertiría en SVG también en la LANDING —donde
+   * el control no existe— y el navbar pasaría de 4 iconos a 5 en su modo por
+   * defecto. Por eso el marcador vive en un `<template data-back-icon>` (cuyos
+   * nodos no están en el árbol y por lo tanto no se hidratan) y recién acá se
+   * clona y se hidrata, en su propio nodo y fuera de cualquier `data-text` (que
+   * `update()` pinta con `textContent` y borraría un SVG adentro).
+   */
+  render(state) {
+    const link = this.root.querySelector("#backHome");
+    const iconTemplate = this.root.querySelector("template[data-back-icon]");
+    if (!link || !iconTemplate) return;
+    const icon = link.querySelector("svg, i[data-lucide]");
+    if (state.backHidden) {
+      // Sin control no hay icono: el modo por defecto queda igual que siempre.
+      icon?.remove();
+      return;
+    }
+    if (icon) return;
+    const node = iconTemplate.content.cloneNode(true);
+    hydrateIcons(node);
+    link.prepend(node);
   }
 
   connectedCallback() {
@@ -346,12 +454,6 @@ export class WhiskitoNavbar extends WhiskitoElement {
       // Ya conectado no vuelve a pedir conexión: eso lo maneja "Desconectar".
       if (this.state.isBusy || this.state.isConnected) return;
       this.emit("whiskito:connect-request");
-    });
-    this.root.querySelector("#dashboardButton")?.addEventListener("click", () => {
-      // Mi Panel existe sólo con la wallet conectada: sin conexión no hay
-      // dirección de la que mostrar donaciones.
-      if (!this.state.isConnected) return;
-      this.emit("whiskito:dashboard-request");
     });
     this.root.querySelector("#switchButton")?.addEventListener("click", () => {
       // Cambiar de cuenta es cosa de la wallet (abre su selector): la política

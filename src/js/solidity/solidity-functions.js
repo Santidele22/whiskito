@@ -1,7 +1,7 @@
 import { formatEther, parseEther } from "https://esm.sh/viem";
 import { FUND_ABI } from "./fund-abi.js";
 import { getPublicClient, getActiveNetwork, getWalletClient } from "./chain.js";
-import { shortAddress, relativeTime } from "./format.js";
+import { shortAddress, relativeTime } from "../utils/format.js";
 // Las verificaciones que TODA escritura comparte (red, wallet, simulación
 // previa, status del recibo). Acá no se repite ninguna: ver `tx.js`.
 import { requireNetwork, requirePublicClient, writeAndConfirm } from "./tx.js";
@@ -41,15 +41,30 @@ const EVENT_WINDOW_BLOCKS = 5000n;
 
 /**
  * Todas las donaciones que recibió `professional`, más nuevas primero, con la
- * forma que pinta "Mi Panel" (`donorShort` / `amountEth`).
+ * forma que pinta la tabla del historial (`donorShort` / `amountEth`).
  *
  * El `limit` (200 por defecto) existe para que una dirección con miles de
- * donaciones no vuelque todo en la tabla del modal: se descartan las más viejas
+ * donaciones no vuelque todo en la tabla: se descartan las más viejas
  * y quedan las últimas `limit`. El orden es más nuevas primero porque es el
- * orden en el que uno quiere ver la historia al abrir el panel.
+ * orden en el que uno quiere ver la historia al abrir la página.
  *
  * El `usd` sale del propio evento (`usdValue`), no de multiplicar por el precio
  * de ahora: es el valor que el contrato dejó grabado en el momento de donar.
+ *
+ * Por qué la fila lleva `donor`, `txHash` y `blockNumber` de más (se agregaron
+ * para la página `/historial`, que necesita identificar cada donación y linkear
+ * su transacción): `donorShort` es la dirección ACORTADA —con eso no se puede
+ * reconstruir la dirección completa ni comparar dos filas del mismo donante de
+ * forma confiable— y ni el hash ni el bloque venían en la fila. Son campos
+ * ADITIVOS: se agregan al final de cada fila y no cambian el nombre, el
+ * significado ni el orden de los cuatro que ya existían, así que `readDonations`
+ * —que desestructura sólo esos cuatro— sigue leyendo lo mismo. Tampoco cambian el
+ * `limit`, el `usd` ni el orden (más nuevas primero).
+ *
+ * `blockNumber` viaja como **string** (`String(event.blockNumber)`), decidido y
+ * no accidental: el resto de los campos de la fila son texto y así una fila se
+ * puede serializar sin sorpresas con un `bigint` adentro. Para comparar u
+ * ordenar, se convierte con `BigInt(...)`.
  */
 export async function readDonationHistory(professional, { limit = 200 } = {}) {
   const client = getPublicClient();
@@ -109,6 +124,12 @@ export async function readDonationHistory(professional, { limit = 200 } = {}) {
       amountEth: formatEther(event.args.ethAmount),
       usd: Number(formatEther(event.args.usdValue)).toFixed(2),
       when: relativeTime(await timestampOf(event.blockNumber)),
+      // Aditivos, para la página `/historial`: la dirección COMPLETA del
+      // donante (tal cual viene en el evento, sin acortar), el hash de la
+      // transacción y el bloque. Ver la nota de arriba.
+      donor: event.args.donor,
+      txHash: event.transactionHash,
+      blockNumber: String(event.blockNumber),
     }))
   );
 }
@@ -132,9 +153,9 @@ export async function readDonations(professionalAddress) {
 /**
  * El balance disponible de `address`, ya en ETH como texto.
  *
- * Es la ÚNICA lectura de `balances`: la usan el portfolio de la página y el
- * modal "Mi Panel" (que muestra el balance de la cuenta conectada). Dos lecturas
- * del mismo dato en dos lugares es justamente lo que hacía que el modal pudiera
+ * Es la ÚNICA lectura de `balances`: la usan el portfolio de la página y el saldo
+ * que la tabla del historial muestra en la vista del profesional. Dos lecturas
+ * del mismo dato en dos lugares es justamente lo que hacía que una isla pudiera
  * quedar mostrando un saldo viejo.
  */
 export async function readBalance(address) {
