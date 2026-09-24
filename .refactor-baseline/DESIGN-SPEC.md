@@ -3,7 +3,7 @@
 Documento de trabajo del rediseño. **No es parte de la app.**
 
 > **Estado: implementado y verificado.** El rediseño está aplicado en `src/`, y el
-> harness `islands.html` da `OK(157/157)` con su ancla re-congelada. **La §5
+> harness `islands.html` da `OK(257/257)` con su ancla re-congelada. **La §5
 > (iconos) también está implementada y verificada** — el harness le sumó las
 > aserciones L1–L5, y L2 se probó como control negativo. Dos correcciones se
 > hicieron sobre lo escrito acá, ya aplicadas en el código:
@@ -19,6 +19,13 @@ Documento de trabajo del rediseño. **No es parte de la app.**
 > las cuales son borrados de emoji). Y el botón "Copiar link" de la share-card
 > necesitó además un arreglo de JS fuera de la tabla: se pintaba con
 > `button.textContent`, que borra el icono — ver la trampa en `README.md`.
+>
+> **Nota de estado (transición a POL).** Después de esa verificación la app pasó
+> a **POL**: la moneda nativa y el copy de toda la interfaz (anvil sigue en ETH,
+> que es su moneda), el piso de donación bajó de 0,5 a **0,01 USD**
+> (`MINIMUM_USD = 1 * 1e16`, §4.4 / §4.7) y el link del explorador del footer
+> dejó de estar hardcodeado: sale de la red (§4.6). El ancla se regeneró con
+> `capture-static.html` y se comprobó con control negativo.
 >
 > El procedimiento de verificación (ancla de F, aserciones reformuladas, control
 > negativo y receta para re-correr) está en `README.md`.
@@ -144,7 +151,7 @@ section.hero
 
 - badge: `★ Esta noche: gracias, buen trabajo ★`
 - title: `Invitame un` + `.fill-red` = `Whiskito`
-- subtitle: `Una pequeña donación en` + `<em>ETH</em>` + `que viaja directo de tu ` +
+- subtitle: `Una pequeña donación en` + `<em>POL</em>` + `que viaja directo de tu ` +
   tooltip `wallet` + ` a la de quien te gusta apoyar. Servido neat: sin nadie en
   el medio. Sin registro, sin comisiones, sin empresas cobrando entrada.`
   El tooltip conserva el `data-tip` actual (wallet = tu cuenta de cripto…).
@@ -156,13 +163,13 @@ section.hero
   - `.mc-label`: `★ Última ronda`
   - `.mc-avatar`: `🥃`
   - `.mc-who` → `<code>0x7a3f...9c2e</code>` + `p.mc-action`: `te invitó un whisky`
-  - `.mc-amount` → `<strong>0.0015 ETH</strong>` + `<span>≈ $5.00 USD</span>`
+  - `.mc-amount` → `<strong>50 POL</strong>` + `<span>≈ $5.00 USD</span>`
   - `.mc-time`: `hace 2 min · confirmado ✅`
 - `.chip-a` (arriba a la derecha): `🦊 <code>0x3f...b8a1</code> llegó al club`
 - `.chip-b` (abajo a la izquierda): `⛓️ Archivado en la blockchain`
 - `.stamp-seal`: `Sin comisión` + `0%` + `★`
 - stats: `0%` / `comisión de plataforma` · `100%` / `público y verificable` ·
-  `~12s` / `en confirmarse` · `0.5 USD` / `mínimo por sorbo`
+  `~12s` / `en confirmarse` · `0.01 USD` / `mínimo por sorbo`
 
 ### 4.3 `whiskito-how-it-works.js` — light DOM
 
@@ -206,9 +213,9 @@ Los tres pasos (`ul.steps-v`):
    `<code>whiskito.app/u/su-wallet</code>` + `. Ahí está todo listo para invitarle
    un whiskito.`
 2. h4 `Elegí cuánto invitás` · p: `Conectá tu wallet, poné el monto en ` +
-   tooltip `ETH` + ` (la moneda de Ethereum) y mirá el equivalente en dólares al
+   tooltip `POL` + ` (la moneda nativa de Polygon) y mirá el equivalente en dólares al
    lado: sabés exactamente cuánto estás invitando ` + `<strong>antes</strong>` +
-   ` de confirmar.` (conservá el `data-tip` actual del tooltip ETH)
+   ` de confirmar.` (conservá el `data-tip` actual del tooltip POL)
 3. h4 `Confirmá y listo` · p: `Tu donación queda grabada en la ` + tooltip
    `blockchain` + ` en segundos: es pública y cualquiera puede verificarla. Eso sí,
    en cripto no hay botón de arrepentimiento: la donación es irreversible.`
@@ -234,17 +241,17 @@ los whiskitos, y nadie puede cambiarlas por detrás.`
 1. h4 `Solo el dueño toca sus fondos` · p: `El código que gestiona los whiskitos
    no le permite a nadie mover tu dinero: ni a otro usuario, ni a Whiskito. Tu
    wallet es la única llave que abre esa caja.`
-2. h4 `Mínimo: 0.5 USD por donación` · p: `Toda ronda tiene un piso equivalente a
-   medio dólar. Así se evitan donaciones vacías y errores de tipeo del estilo
+2. h4 `Mínimo: 0.01 USD por donación` · p: `Toda ronda tiene un piso equivalente a
+   un centavo de dólar. Así se evitan donaciones vacías y errores de tipeo del estilo
    "quería poner 5 y puse 0.05".`
-3. h4 `Precio real, nunca viejo` · p: `La conversión ETH → dólares no la decidimos
+3. h4 `Precio real, nunca viejo` · p: `La conversión POL → dólares no la decidimos
    nosotros: viene de un ` + tooltip `oráculo` + ` (una fuente de precios confiable
    y verificada en tiempo real). Si el dato está desactualizado, la operación
    simplemente no se hace.` (conservá el `data-tip`)
 4. h4 `Todo queda a la vista` · p: `Cada donación queda grabada en la blockchain:
    un registro público que nadie puede editar ni borrar. ¿Querés comprobarlo? Cada
-   movimiento tiene su enlace a ` + tooltip `Etherscan` + `, el buscador de
-   transacciones de Ethereum.` (conservá el `data-tip`)
+   movimiento tiene su enlace a ` + tooltip `Polygonscan` + `, el buscador de
+   transacciones de Polygon.` (conservá el `data-tip`)
 
 ### 4.5 `whiskito-faq.js` — light DOM
 
@@ -279,19 +286,36 @@ Preguntas (mismas 5, reescritas a whiskito; `<b>` con los términos clave):
 
 ```
 footer.footer
-├── div.footer-inner → div.footer-brand (div.footer-logo + p.footer-tagline) + nav.footer-links (5 a)
+├── div.footer-inner → div.footer-brand (div.footer-logo + p.footer-tagline) + nav.footer-links (4 a + a.footer-explorer)
 ├── p.footer-warning
 └── p.footer-copy
 ```
 
-**Copy:** logo `🥃 Whiskito` · tagline `Hecho con ETH y buen rollito. No hay
+**Copy:** logo `🥃 Whiskito` · tagline `Hecho con POL y buen rollito. No hay
 plataforma que se quede con tu whiskito: el apoyo va directo de wallet a wallet.`
 · links: `Donar` (#donar), `Cómo funciona` (#como-funciona), `Mi Panel` (#panel),
-`Preguntas frecuentes` (#faq), `Contrato verificado en Etherscan ↗` (target
-`_blank`, rel `noopener`) · warning: `⚠️ <b>Importante:</b> las donaciones en
+`Preguntas frecuentes` (#faq) y el link del explorador (`Ver el contrato en el
+explorador` + `<i data-lucide="arrow-up-right"></i>`, target `_blank`, rel
+`noopener`; ver abajo) · warning: `⚠️ <b>Importante:</b> las donaciones en
 cripto son irreversibles. Una vez confirmada, una ronda no se puede recuperar.
-Doná con cabeza, whiskitero.` · copy: `Whiskito · Donaciones en ETH para
+Doná con cabeza, whiskitero.` · copy: `Whiskito · Donaciones en POL para
 profesionales independientes · El contrato es público y auditable por cualquiera`
+
+**El link del explorador sale de la red, no del template.** El 5.º link es
+`a.footer-explorer` con `data-attr="hidden:explorerHidden; href:explorerHref"`, y
+su `<span data-text="explorerLabel">` es el que pinta el texto
+(`Ver el contrato en el explorador`). El `href` **no está hardcodeado**: es
+`NETWORKS[red].explorer` + `/address/` + `fund`, y se lo pasa `app.js` por la
+frontera `islands.setExplorer()` (`islands.js` escribe `explorer` y `fund` como
+atributos de la isla). En una red **sin** explorador (`explorer: null`, anvil) el
+`<a>` queda `hidden`, no apunta a `#`. Es el mismo dato que el modal del
+veredicto de la transacción.
+
+**Trampa (no reintroducir):** el `data-text` va en el `<span>` y **no** en el
+`<a>`, porque `update()` pinta con `textContent` y se llevaría el icono
+`<i data-lucide="arrow-up-right"></i>`, que es **hermano** del span. Con el
+marcador en el `<a>` quedaban 15 iconos en vez de 16 (la trampa está comentada en
+`src/components/whiskito-footer.js`).
 
 ### 4.7 `whiskito-donate-card.js` — shadow (isla) — LA CARTA
 
@@ -304,8 +328,8 @@ Estructura: `div.donate-card` → `h3.card-title` · `p.card-subtitle` ·
 
 **Copy:** card-title `La carta` · card-subtitle `Elegí tu veneno: un monto rápido
 o el tuyo.` · chips: `🥃 Un sorbo` (0.5) · `🥃 Un whisky` (1) · `🥃🥃 Una ronda`
-(5) · `🍾 La botella entera` (20) · input-label `Monto en ETH` · input-currency `Ξ`
-· fundButton `🥃 Invitar un Whiskito` · footnote `🔒 Mínimo: 0.5 USD, calculado con
+(5) · `🍾 La botella entera` (20) · input-label `Monto en POL` · input-currency `Ξ`
+· fundButton `🥃 Invitar un Whiskito` · footnote `🔒 Mínimo: 0.01 USD, calculado con
 el precio en tiempo real de un ` + tooltip `oráculo` + ` on-chain.` (conservá el
 `data-tip`).
 
@@ -369,7 +393,7 @@ tus fondos. Tus whiskitos, tus reglas.`
 · receipt-head: `🥃 Whiskito · Barra` + `span.pd-badge` `vista previa`
 · r-balance-label: `Balance disponible`
 · receipt-balance: `#balanceDisplay` (`data-text="balanceEth"`, texto inicial
-`0.0842`) + `span.balance-unit` `ETH`
+`0.0842`) + `span.balance-unit` `POL`
 · r-usd: `#balanceUsd` `data-text="balanceUsd"`, texto `≈ $269.44 USD`
 · r-history-title: `Últimas rondas recibidas`
 · `#withdrawButton`: `💸 Retirar todo` (conserva `data-attr="hidden:notOwner;
@@ -377,11 +401,11 @@ tus fondos. Tus whiskitos, tus reglas.`
 · `#withdrawStatus`: conserva `data-text` + `data-attr="hidden:withdrawStatusHidden"`
   + `data-class="is-error:isWithdrawError; is-success:isWithdrawSuccess"`
 · `template[data-item]` → `div.r-item` con `<code data-field="address">`,
-  `span.amt` (`+<span data-field="eth">` ETH `<small>≈ $<span data-field="usd">`
+  `span.amt` (`+<span data-field="eth">` POL `<small>≈ $<span data-field="usd">`
   `</small>`) y `span.when[data-field="when"]`
 · estado vacío: `p.r-empty` con `data-attr="hidden:hasDonations"` y texto
   `Todavía no te invitaron ningún whiskito 🥃`
-· r-foot: `Whiskito · recibo de barra · verificable en Etherscan`
+· r-foot: `Whiskito · recibo de barra · verificable en Polygonscan`
 
 **Contrato (no tocar):** `observedAttributes`, todos los getters/setters y
 `get state()`, ids `#panelOwner`, `#balanceDisplay`, `#balanceUsd`,
@@ -529,7 +553,7 @@ lleva el `<i>` adentro:
 | slot | emoji | queda |
 |---|---|---|
 | `.footer-logo` | 🥃 | adentro: `<i data-lucide="glass-water"></i> Whiskito` |
-| link de Etherscan | ↗ | se quita el `↗` y va `<i data-lucide="arrow-up-right"></i>` al final del texto |
+| link del explorador (`a.footer-explorer`) | ↗ | se quita el `↗` y va `<i data-lucide="arrow-up-right"></i>` al final del texto, **hermano** del `<span data-text="explorerLabel">` (ver §4.6) |
 | `.footer-warning` | ⚠️ | `<i data-lucide="triangle-alert"></i> <b>Importante:</b> …` |
 
 #### `whiskito-navbar.js` (shadow)
@@ -556,7 +580,7 @@ lleva el `<i>` adentro:
 | chip 5 | 🥃🥃 | `<i data-lucide="glass-water"></i> Una ronda` |
 | chip 20 | 🍾 | `<i data-lucide="bottle-wine"></i> La botella entera` |
 | `#fundButton` | 🥃 | adentro: `<i data-lucide="glass-water"></i> Invitar un Whiskito` |
-| `.card-footnote` | 🔒 | `<i data-lucide="lock"></i> Mínimo: 0.5 USD, …` |
+| `.card-footnote` | 🔒 | `<i data-lucide="lock"></i> Mínimo: 0.01 USD, …` |
 | `STATUS_TEXT.success` | 🥃 | `"¡Whiskito enviado!"` (sin emoji) |
 
 Más `.icon {…}` en su `static styles`.
