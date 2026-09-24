@@ -389,8 +389,13 @@ landing, nadie en el link).
   rondas y el botón de retirar).
 - **Los montos se etiquetan en POL** en la tarjeta de donación, el panel y la tabla del historial
   ("Monto en POL", la unidad del balance, la columna de la tabla y el resumen). Los
-  identificadores internos (`amountEth`, `balanceEth`, `data-field="eth"`) **siguen igual**: son la
-  API entre islas y harness.
+  identificadores internos dicen POL también —`readPolPrice`, `balancePol`, `amountPol`,
+  `formatPol`, `data-field="pol"`—: son la API entre islas y harness, y un vocabulario partido
+  (código diciendo ETH, pantalla diciendo POL) se lee como si fueran dos monedas distintas.
+  Quedan en ETH los dos **atributos HTML** de las islas (`eth-price`, `balance-eth`): no son JS
+  sino markup, y `redesign-static.html` —la copia congelada contra la que compara el bloque F— los
+  lleva escritos, así que renombrarlos obliga a regenerarla con `capture-static.html` y volver a
+  pasar el control negativo (AGENTS.md §5).
   Las secciones **estáticas** (hero, trust, footer, cómo funciona) también dicen POL, y el link del
   footer dejó de ser un `href="#"` muerto: sale de `NETWORKS[red].explorer` + `fund` —Polygonscan en
   Amoy— y queda `hidden` en una red sin explorador (anvil).
@@ -766,6 +771,7 @@ src/
     entries/app.js         el flujo de la landing: datos hacia las islas, eventos hacia afuera
     entries/donate.js      el flujo de la página del link (`/u/0x…`), que cobra de verdad
     solidity/chain.js      red activa y los dos clientes
+    solidity/errors.js     errores de la wallet (EIP-1193) y el texto del desajuste de red
     solidity/tx.js         verificaciones y envío de toda escritura
     solidity/solidity-functions.js  lecturas y escrituras del contrato
     solidity/fund-abi.js   ABI legible del contrato

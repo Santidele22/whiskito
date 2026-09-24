@@ -42,8 +42,9 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está pu
 | `src/donate.html` | la página que se comparte en `/u/0x…`: **sólo** la tarjeta de donación (y **cobra de verdad**: no hay ningún aviso de demo) |
 | `src/js/entries/donate.js` | el flujo de esa página: destinatario, precio, conectar la wallet y donar |
 | `src/js/solidity/tx.js` | **las verificaciones de toda escritura** (ver §2, punto 1) |
-| `src/js/solidity/solidity-functions.js` | lecturas (`readContract`, `readEthPrice`, `readDonationHistory`, `readDonations`, `readPortfolio`) y escrituras (`fund`, `withdraw`, `withdrawAll`) |
+| `src/js/solidity/solidity-functions.js` | lecturas (`readContract`, `readPolPrice`, `readDonationHistory`, `readDonations`, `readPortfolio`) y escrituras (`fund`, `withdraw`, `withdrawAll`) |
 | `src/js/solidity/chain.js` | clientes: red activa, cliente de lectura HTTP, cliente de wallet |
+| `src/js/solidity/errors.js` | módulo hoja: errores de la wallet (EIP-1193: rechazo del usuario, red desconocida, método no soportado) y el texto del desajuste de red (`networkMismatchMessage`) |
 | `src/js/roles/viewer-role.js` | rol derivado (`guest`/`donor`/`owner`), `canDonate`, `canWithdraw` |
 | `src/js/config/demo-mode.js` | módulo hoja: `DEMO`, el modo **de la landing** (default **true**; `?demo=0` o `?real=1` lo apagan). La página del link no lo usa |
 | `src/js/config/config.js` | módulo hoja: `NETWORKS` por chainId (con `professional` por red), `professionalFor(chainId)`, `DEFAULT_CHAIN_ID` según el origen, `SITE` |

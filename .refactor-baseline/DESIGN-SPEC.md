@@ -406,7 +406,7 @@ de estado del aviso de mínimo:
     aserciones `S1`–`S15`.
 - `p.card-hint#cardHint` pinta uno de dos avisos por `data-text="hintText"`
   (`data-attr="hidden:hintHidden"`): el piso, **interpolado en JS** — `El mínimo
-  es ` + `minUsd.toFixed(2)` + ` USD ≈ ` + `minEth` + ` POL`, con el monto en POL
+  es ` + `minUsd.toFixed(2)` + ` USD ≈ ` + `minPol` + ` POL`, con el monto en POL
   redondeado hacia arriba a 6 decimales — y, si
   el visitante es el dueño de la página (atributo `can-donate="false"`,
   `islands.setDonateCanDonate`), el bloqueo del dueño: `Estás en tu propia página:
@@ -489,7 +489,7 @@ blockchain (cualquiera puede auditarlos) no significa que alguien más pueda mov
 tus fondos. Tus whiskitos, tus reglas.`
 · receipt-head: `🥃 Whiskito · Barra` + `span.pd-badge` `vista previa`
 · r-balance-label: `Balance disponible`
-· receipt-balance: `#balanceDisplay` (`data-text="balanceEth"`, texto inicial
+· receipt-balance: `#balanceDisplay` (`data-text="balancePol"`, texto inicial
 `0.0842`) + `span.balance-unit` `POL`
 · r-usd: `#balanceUsd` `data-text="balanceUsd"`, texto `≈ $269.44 USD`
 · r-history-title: `Últimas rondas recibidas`
