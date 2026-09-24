@@ -51,6 +51,18 @@ body::after {
   z-index: 2000;
 }
 
+/* La textura es de PAPEL: son puntos de tinta al 4,5 % pensados para leerse
+   sobre el crema de la landing. Sobre el fondo NEGRO de la vista del profesional
+   (abajo) esos mismos puntos de tinta son invisibles por definición —tinta sobre
+   tinta—, así que lo único que aportarían es una capa `position: fixed` de
+   z-index 2000 sobre TODA la pantalla y decenas de miles de gradientes que el
+   compositor tiene que rehacer en cada scroll, a cambio de nada.
+   Se apaga: no se "adapta" con puntos de papel, porque eso sería una textura
+   distinta que nadie pidió (y el pedido es un solo color de fondo: NEGRO). */
+body.is-profesional::after {
+  background-image: none;
+}
+
 ::selection {
   background: var(--blues-red);
   color: var(--paper);
@@ -113,6 +125,66 @@ whiskito-share-card[hidden] {
 /* Lo mismo para la radio: `display: contents` en el host le gana al [hidden]. */
 whiskito-radio[hidden] {
   display: none;
+}
+
+/* ---------- Cambio de vista: visitante / profesional ----------
+   La vista del profesional es SÓLO CSS: los hosts del visitante siguen montados
+   (la puerta e2e los mide antes de conectar y exige las islas vivas después), así
+   que lo que no se muestra se oculta desde acá. `display: contents` en el host le
+   gana al `[hidden]` del navegador, así que el selector tiene que ser más
+   específico que aquel (body + clase + hijo directo).
+
+   Un solo color de fondo, NEGRO (`--ink`). La tarjeta del historial es la única
+   pieza clara: es papel (`--paper`) y no tiene ningún otro fondo adentro.
+
+   El color va también en <html>: el fondo del elemento raíz es el que pinta el
+   LIENZO del viewport, así que en una vista más alta que la página (o al
+   scrollear más allá del final) asomaría el blanco del navegador —un segundo
+   color de fondo que no es ninguno de los dos—. Con los dos en tinta, la
+   ventana entera es NEGRA. */
+html:has(body.is-profesional),
+body.is-profesional {
+  background: var(--ink);
+}
+body.is-profesional > :is(
+    whiskito-hero,
+    whiskito-how-it-works,
+    whiskito-panel,
+    whiskito-trust,
+    whiskito-faq,
+    whiskito-footer,
+    whiskito-radio
+  ) {
+  display: none;
+}
+
+/* Las dos islas del profesional (el saludo y la tabla del historial) las monta
+   el router en runtime: sin la clase no existen para el visitante (y si
+   quedaron montadas de una vista anterior, tampoco se ven).
+   OJO con la tabla: su tag lo COMPARTE la página `/historial`, que monta la
+   misma isla a pantalla completa y cuyo body NO tiene la clase (es
+   `.history-page`). Un `body:not(.is-profesional) > whiskito-history-table` a
+   secas la escondería también ahí —el host quedaría 0x0 y la tabla invisible—,
+   así que la regla excluye explícitamente esa página. */
+whiskito-pro-greeting,
+whiskito-history-table {
+  display: block;
+}
+
+body:not(.is-profesional):not(.history-page) > whiskito-pro-greeting,
+body:not(.is-profesional):not(.history-page) > whiskito-history-table {
+  display: none;
+}
+
+/* El aire de la tabla en la landing va acá y no sólo en el `:host` de la isla:
+   para el elemento host, una regla del documento (el reset `* { padding: 0 }`)
+   le gana a las reglas `:host` del shadow root, así que sin esto la tarjeta
+   quedaría pegada a los bordes y su sombra dura (9px 9px) empujaría la página a
+   un scroll horizontal. El ancho se limita como el resto de las secciones. */
+body.is-profesional > whiskito-history-table {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px 72px;
 }
 
 /* En una red sin explorador (anvil) el link del footer queda `hidden`: sin esta
@@ -1176,5 +1248,48 @@ details p b {
 @media (max-width: 768px) {
   .donate-page {
     padding: 24px 14px;
+  }
+}
+
+/* ============================================================
+   PÁGINA DEL HISTORIAL (`/historial`)
+   El navbar de la landing arriba y la isla del historial ocupando
+   TODO el resto (ancho y alto). Igual que `.donate-page`: todo
+   cuelga de `.history-page`, la clase que sólo lleva el <body> de
+   `historial.html`, así que ninguna regla de la landing cambia.
+   ============================================================ */
+.history-page {
+  /* La columna: el header arriba y la isla estirándose con lo que sobra. */
+  min-height: 100vh;
+  min-height: 100dvh; /* en móvil, sin la barra del navegador */
+  display: flex;
+  flex-direction: column;
+}
+
+/* El navbar tiene que ser una caja de verdad acá (la landing lo deja en
+   `display: contents`): es el primer ítem de la columna y su alto es el que
+   descuenta el alto que le queda a la isla. */
+.history-page > whiskito-navbar {
+  display: block;
+  flex: none;
+}
+
+/* La isla del historial: el resto del alto. `min-height: 0` es lo que deja que
+   el alto lo mande la columna (y no el contenido de la tarjeta). El padding va
+   acá ADEMÁS del `:host` de la isla: para el elemento host, una regla del
+   documento (el reset `* { padding: 0 }`) le gana a las reglas `:host` del
+   shadow root, así que sin esto el host quedaría sin aire y la sombra dura de
+   `.hist-card` (9px 9px) se apoyaría en el borde del viewport. */
+.history-page > whiskito-history-table {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 24px;
+}
+
+@media (max-width: 768px) {
+  /* Menos aire: la tarjeta ya no comparte la pantalla con nada más. */
+  .history-page > whiskito-history-table {
+    padding: 16px 12px;
   }
 }

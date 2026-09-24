@@ -27,7 +27,8 @@
          feliz (S1–S5), una para el selector cancelado (S6), una para la wallet
          sin `wallet_requestPermissions` (S7), la landing para el navbar (S8) y
          tres más para el cartel de la donación anterior (S10–S12) más una
-         landing para el cartel de la tarjeta (S13). -->
+         landing CON dueño en la URL (la única donde el dueño conectado todavía
+         ve la tarjeta) para el cartel de la tarjeta (S13). -->
     <iframe id="cambioCuenta"></iframe>
     <iframe id="cancelaCambio"></iframe>
     <iframe id="walletSinSelector"></iframe>
@@ -700,7 +701,20 @@
         // que bloquea y llena el cartel es `app.js`. Se mide el cartel después
         // del "Cambiar cuenta" del navbar (con `?demo=0`, porque la landing SÍ es
         // demo por defecto y ahí el dueño puede donar).
-        const winZ = await cargar(document.getElementById("landingCartel"), "/?demo=0", 3500);
+        //
+        // Y se carga con `u=`: desde que la landing PELADA conectada es la vista
+        // del profesional —que esconde la sección donde vive la tarjeta—, el único
+        // estado en el que el dueño conectado todavía tiene la tarjeta al alcance
+        // es una landing que NOMBRA un dueño en la URL (ahí la vista se queda en la
+        // del visitante a propósito: es el link que se comparte). El camino que
+        // estas tres aserciones miden es el mismo de siempre —la guardia de `app.js`
+        // y las tres ramas que limpian el cartel—: lo que cambió es dónde ese camino
+        // sigue siendo alcanzable.
+        const winZ = await cargar(
+          document.getElementById("landingCartel"),
+          "/?demo=0&u=" + DIRECCION,
+          3500
+        );
         const walletZ = inyectarWallet(winZ, DIRECCION, { cuentaTrasSelector: OTRA });
         const navbarZ = winZ.document.querySelector("whiskito-navbar");
         const raizZ = shadow(navbarZ);
