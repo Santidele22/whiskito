@@ -51,7 +51,7 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está pu
 | `scripts/dev.sh` | lo que corre `bun run dev`: anvil (si falta), deploy (si falta) y Vite, con limpieza |
 | `src/components/` | 13 web components ("islas"); `base-element.js` es la base |
 | `src/components/whiskito-tx-modal.js` | isla del veredicto de la transacción (aceptada / cancelada); **sólo la página de donación la registra** |
-| `src/components/whiskito-dashboard.js` | isla del modal "Mi Panel": la **tabla de todas las donaciones recibidas** por la cuenta conectada, con las filas que le pasa el flujo (**eventos `Funded` reales de la chain**) |
+| `src/components/whiskito-history-table.js` | isla "Historial de donaciones": la **tabla de todas las donaciones recibidas** por una cuenta, con las filas que le pasa el flujo (**eventos `Funded` reales de la chain**); vive sola en su página `/historial` y también INLINE en la vista del profesional |
 | `src/fund.abi.json` | ABI generado por forge — **y una segunda copia a mano** en `src/js/solidity/fund-abi.js` |
 | `.refactor-baseline/` | andamiaje de verificación, **descartable**; incluye anclas congeladas y `serve.py` |
 | `docs/architecture/` | tres diagramas de la app (spec JSON + HTML) generados con **archify**: arquitectura de runtime, secuencia de la donación y flujo de fondos. Describen, no verifican (README §2.1) |
@@ -86,15 +86,16 @@ es otra red** (Ethereum, `11155111`) y sólo está prevista. El sitio **está pu
    demo ahí. Sin wallet no hay quién firme en ninguna de las dos páginas, y ése es el único caso
    en que el link simula (y lo dice: *"sin wallet"*, no *"demo"*).
    **La donación demo no es plata: no se anota en ningún lado.** El resumen del panel y la tabla
-   de "Mi Panel" son la verdad de la chain (eventos `Funded`), y una prueba simulada no puede
+   del historial son la verdad de la chain (eventos `Funded`), y una prueba simulada no puede
    aparecer ahí como si hubiera entrado.
 7. **Islas**: cada componente es dueño de su DOM (shadow root si declara `static styles`) y
    avisa hacia afuera con eventos `whiskito:*` (`bubbles` + `composed`). `app.js` sólo pasa
    datos y escucha, y **siempre** a través de `islands.js`, que es la única frontera con el DOM.
    No reintroduzcas búsquedas de `id`, `querySelector` ni `innerHTML` fuera de `islands.js`.
-   Vale también para el modal "Mi Panel": el navbar **sólo** emite `whiskito:dashboard-request`,
-   y quien lee la chain (`readDonationHistory`) y le pasa las filas a la isla es `app.js`
-   (`islands.showDashboard`). Ninguna isla lee la chain ni `localStorage` por su cuenta.
+   Vale también para la tabla del historial: el navbar **sólo** emite `whiskito:connect-request`,
+   `whiskito:disconnect-request` y `whiskito:switch-account-request`, y quien lee la chain
+   (`readDonationHistory`) y le pasa las filas a la isla es `app.js` (`islands.showHistory`).
+   Ninguna isla lee la chain ni `localStorage` por su cuenta.
 8. **`config.js` es módulo hoja**: no importa nada ni toca el DOM. Direcciones por `chainId`,
    con override por URL (`?chain=31337&rpc=http://…&fund=0x…`) para demos y para probar un nodo
    caído.
@@ -168,9 +169,9 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
 - `run-harness.py` levanta `serve.py` (con `no-store`), abre `.refactor-baseline/islands.html` en
   Firefox headless y reporta `OK(n/n)` o `FALLOS(k/n)` más los status HTTP (un 404 delata una
   ruta rota) y los módulos que la página bajó de verdad. **Es la puerta de aceptación.** Hoy son
-  **257 aserciones**, e incluyen el modo demo (que donar **no** pida firma ni deje rastro), "Mi
-  Panel" leyendo donaciones reales de la chain, el camino real con `?demo=0` y el bloque **G** de
-  entornos (que elegir red no mienta: §2.8d–8e).
+  **257 aserciones**, e incluyen el modo demo (que donar **no** pida firma ni deje rastro), la
+  tabla del historial leyendo donaciones reales de la chain (P5–P6), el camino real con `?demo=0`
+  y el bloque **G** de entornos (que elegir red no mienta: §2.8d–8e).
 - Necesita **anvil en `http://127.0.0.1:8545` (chainId 31337) con el deploy hecho y el oráculo
   fresco**. El harness se prepara su propio estado: dona de verdad y retira.
 - Qué correr según el cambio: tocaste módulos → `resolve-imports`; tocaste el contrato o el
@@ -284,8 +285,8 @@ python3 .refactor-baseline/verify-refactor/run-donate-probe.py 8899  # la págin
 - **El RPC de Amoy de `config.js` no puede ser `drpc`**, y el rango de eventos no puede ser "desde
   el bloque 0". Medido con `eth_getLogs` del evento `Funded` del contrato real: el plan free de
   `polygon-amoy.drpc.org` acepta a lo sumo **100 bloques** por pedido (200 ya los rechaza con HTTP
-  400 y `fromBlock: 0` también; su mensaje «ranges over 10000 blocks» miente), así que la tabla de
-  "Mi Panel" quedaría vacía en el sitio publicado. `…-bor-rpc.publicnode.com` sí los sirve, hasta
+  400 y `fromBlock: 0` también; su mensaje «ranges over 10000 blocks» miente), así que la tabla del
+  historial quedaría vacía en el sitio publicado. `…-bor-rpc.publicnode.com` sí los sirve, hasta
   10.000 bloques de diferencia por pedido (medido: 10.001 bloques andan, 10.002 no). Por eso el RPC
   es publicnode y `readDonationHistory` pide los eventos **por ventanas de 5.000 bloques** hacia
   atrás desde el head, con piso en `NETWORKS[red].deployBlock` (Amoy `48371056`, el bloque del

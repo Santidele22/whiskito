@@ -357,7 +357,7 @@ permiso— y la app además **sigue** los cambios de cuenta que el usuario haga 
 suscribiéndose a `accountsChanged` (`onWalletAccountsChange` en `src/js/solidity/chain.js`), sin recargar la
 página.
 
-### 5.4 Modo demo (sólo la landing) y "Mi Panel"
+### 5.4 Modo demo (sólo la landing) y la tabla del historial
 
 **El modo demo es de la landing, no de la app.** El "Acto II" de la landing —la tarjeta de la
 sección *Querés invitar un whiskito*— invita en demo: simula la donación en el front (mismo
@@ -375,20 +375,22 @@ landing, nadie en el link).
 - **Sin wallet no hay quién firme**, ni en la landing ni en el link: ése es el único caso en que
   el link simula, y lo dice como *"simulada"* (no como *"demo"*).
 - **La donación demo no es plata**, así que no se anota en ningún lado: el resumen del panel y la
-  tabla de "Mi Panel" muestran la verdad de la chain (eventos `Funded`) y una prueba simulada no
+  tabla del historial muestran la verdad de la chain (eventos `Funded`) y una prueba simulada no
   puede aparecer ahí como si hubiera entrado.
 - **La guardia del dueño se relaja sólo en la landing en demo:** `canDonate(role, { demo })` deja
   que el dueño pruebe la donación en su propia página, porque no hay firma que proteger. En el
   link nunca se relaja: esa página cobra de verdad, así que el dueño está bloqueado siempre.
-- **"Mi Panel"** es la isla `whiskito-dashboard`: el botón del navbar (visible sólo con la wallet
-  conectada) abre un modal con la **tabla de todas las donaciones recibidas** por esa cuenta —
-  cuándo, quién, el monto en POL y el equivalente en USD que grabó el evento—, leídas de la chain
-  con `readDonationHistory()` (hasta 200, más nuevas primero). Si la lectura falla, el modal lo dice
-  en vez de mostrar una tabla vacía. La sección `#panel` de la landing queda como **resumen y
-  decoración** (saldo, últimas rondas y el botón de retirar).
-- **Los montos se etiquetan en POL** en la tarjeta de donación, el panel y el dashboard ("Monto en
-  POL", la unidad del balance, la columna de la tabla y el resumen). Los identificadores internos
-  (`amountEth`, `balanceEth`, `data-field="eth"`) **siguen igual**: son la API entre islas y harness.
+- **La tabla del historial** es la isla `whiskito-history-table`: la **tabla de todas las donaciones
+  recibidas** por esa cuenta —cuándo, quién, el monto en POL y el equivalente en USD que grabó el
+  evento—, leídas de la chain con `readDonationHistory()` (hasta 200, más nuevas primero). Vive
+  sola en su página `/historial` y también INLINE en la vista del profesional de la landing, que es
+  donde esa vista retira (`canWithdraw`); si la lectura falla, lo dice en vez de mostrar una tabla
+  vacía. La sección `#panel` de la landing queda como **resumen y decoración** (saldo, últimas
+  rondas y el botón de retirar).
+- **Los montos se etiquetan en POL** en la tarjeta de donación, el panel y la tabla del historial
+  ("Monto en POL", la unidad del balance, la columna de la tabla y el resumen). Los
+  identificadores internos (`amountEth`, `balanceEth`, `data-field="eth"`) **siguen igual**: son la
+  API entre islas y harness.
   Las secciones **estáticas** (hero, trust, footer, cómo funciona) también dicen POL, y el link del
   footer dejó de ser un `href="#"` muerto: sale de `NETWORKS[red].explorer` + `fund` —Polygonscan en
   Amoy— y queda `hidden` en una red sin explorador (anvil).
@@ -603,7 +605,7 @@ node .refactor-baseline/check-config.mjs
 
   El plan free de `drpc` acepta a lo sumo **100 bloques** por pedido: un rango de 200 ya lo rechaza
   (y su mensaje —«ranges over 10000 blocks are not supported on free plan»— miente), así que no
-  puede servir un panel que lee eventos: con drpc la tabla de "Mi Panel" quedaría vacía en el sitio
+  puede servir un panel que lee eventos: con drpc la tabla del historial quedaría vacía en el sitio
   publicado (en una medición previa, un rango de 466 bloques llegó a dar `HTTP 500`). publicnode
   sirve hasta **10.000 bloques de diferencia** por pedido (medido: 10.001 bloques andan, 10.002 no),
   y el head de Amoy avanza cada ~2 s, así que un pedido único "desde el deploy" dejaría de servir a
@@ -665,9 +667,9 @@ El harness abre `.refactor-baseline/islands.html` en Firefox headless y acciona 
 monta las islas, conecta una wallet falsa que reenvía las transacciones a anvil, **dona ETH real**
 al contrato —en la página cargada con `?demo=0`— hace click en retirar y comprueba que el saldo en
 la chain vuelva a cero. Además verifica el **modo demo de la landing** (su default): que donar
-**no** pida ninguna firma, que no ensucie el resumen del panel, y que "Mi Panel" liste las
-**donaciones reales** de la chain (el harness manda una donación de verdad a una cuenta fresca y
-la busca en la tabla).
+**no** pida ninguna firma, que no ensucie el resumen del panel, y que la tabla del historial
+liste las **donaciones reales** de la chain (P6: el harness manda una donación de verdad a la
+cuenta conectada y busca la fila en la tabla).
 Hoy son **257 aserciones**. Necesita anvil corriendo con el deploy hecho y el oráculo fresco (el
 mock arranca con la hora del deploy y el contrato rechaza precios de más de 3 h).
 
@@ -775,7 +777,7 @@ src/
     utils/format.js        formateo (montos y direcciones cortas)
     roles/viewer-role.js   rol derivado (guest/donor/owner) y la guardia de auto-donación
   components/              13 web components ("islas") + base-element.js
-                           (whiskito-dashboard es el modal "Mi Panel")
+                           (whiskito-history-table es la tabla del historial)
 test/                      PolUsdAdapter.t.sol (18 tests de forge)
 .refactor-baseline/        andamiaje de verificación (descartable)
 .github/workflows/test.yml CI: dos jobs (`check` + `e2e`, ver su README)
