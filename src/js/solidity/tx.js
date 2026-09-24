@@ -2,9 +2,10 @@ import {
   getPublicClient,
   getActiveNetwork,
   getWalletClient,
-  networkMismatchMessage,
+  getWalletChainId,
   walletMatchesActiveNetwork,
 } from "./chain.js";
+import { networkMismatchMessage } from "./errors.js";
 import { FUND_ABI } from "./fund-abi.js";
 
 /**
@@ -26,13 +27,16 @@ export function requireNetwork() {
  * La firma sale de la wallet y va al contrato de la red activa: si la wallet
  * quedó en otra chain, la escritura se frena acá —antes de simular y de
  * firmar— en vez de mandar la transacción a la red equivocada. La comparación
- * vive en `chain.js`, no acá. **Sólo la usa el camino de escritura**: leer no
- * necesita wallet, así que un desajuste no puede dejar la página sin datos.
+ * vive en `chain.js` y el texto del desajuste en `errors.js`, no acá. **Sólo la
+ * usa el camino de escritura**: leer no necesita wallet, así que un desajuste no
+ * puede dejar la página sin datos.
  */
 export function requireSigningNetwork() {
   const network = requireNetwork();
   if (getWalletClient() && !walletMatchesActiveNetwork()) {
-    throw new Error(networkMismatchMessage());
+    throw new Error(
+      networkMismatchMessage(getWalletChainId(), network.chainId)
+    );
   }
   return network;
 }

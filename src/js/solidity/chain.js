@@ -6,14 +6,22 @@ import {
   defineChain,
   http,
 } from "https://esm.sh/viem";
-
+import { DEFAULT_NATIVE_CURRENCY } from "../config/constants.js";
 //CONFIGURACIÓN (redes y constantes de la app)
 import { DEFAULT_CHAIN_ID, effectiveNetwork } from "../config/config.js";
+//ERRORES de la wallet (EIP-1193) y el texto del desajuste de red
+import {
+  isUnknownChain,
+  isUnsupportedMethod,
+  isUserRejection,
+  networkMismatchMessage,
+} from "./errors.js";
 
 let walletClient;
 let publicClient;
 /** Red con la que está trabajando la app: la de la wallet, o la de por defecto. */
 let activeNetwork = effectiveNetwork(DEFAULT_CHAIN_ID);
+
 /**
  * La red en la que está la WALLET conectada, según la última vez que nos lo
  * dijo (`eth_chainId` al conectar, o el evento `chainChanged`). Es la realidad
@@ -38,8 +46,6 @@ const chainChangeHandlers = new Set();
  * handler de red no puede compartir (ni duplicar) la suscripción de cuentas.
  */
 let chainSubscribed = false;
-
-const DEFAULT_NATIVE_CURRENCY = { name: "POL", symbol: "POL", decimals: 18 };
 
 export function chainFromConfig(config) {
   return defineChain({
@@ -107,31 +113,16 @@ export function getWalletChainId() {
 export function walletMatchesActiveNetwork() {
   const wallet = getWalletChainId();
   return (
-    wallet !== null && activeNetwork !== null && wallet === activeNetwork.chainId
-  );
-}
-
-/**
- * El texto del desajuste, en un solo lugar: lo dicen igual la conexión y la
- * guarda de escritura (`tx.js`), y nombra SIEMPRE las dos redes.
- */
-export function networkMismatchMessage() {
-  return `Tu wallet está en la red ${getWalletChainId()} y esta página es de la red ${
-    getActiveNetwork()?.chainId
-  }. Cambiá de red en tu wallet para firmar.`;
-}
-
-/** EIP-1193 4902: la wallet no conoce esa red (se agrega con `wallet_addEthereumChain`). */
-function isUnknownChain(error) {
-  if (error?.code === 4902) return true;
-  return /unrecognized chain|unknown chain|no such chain/i.test(
-    String(error?.message ?? "")
+    wallet !== null &&
+    activeNetwork !== null &&
+    wallet === activeNetwork.chainId
   );
 }
 
 /** La red de la wallet, preguntada a la wallet misma (`eth_chainId`). */
 async function readWalletChainId() {
-  if (!hasWallet() || typeof window.ethereum?.request !== "function") return null;
+  if (!hasWallet() || typeof window.ethereum?.request !== "function")
+    return null;
   try {
     const id = Number(await window.ethereum.request({ method: "eth_chainId" }));
     return Number.isFinite(id) ? id : null;
@@ -140,15 +131,6 @@ async function readWalletChainId() {
   }
 }
 
-/**
- * Le PIDE a la wallet que se mueva a la red activa (con `?chain=` la URL es una
- * instrucción, y la wallet es la realidad: o se mueve, o no se firma).
- *
- * Nunca lanza. Devuelve `true` sólo si la wallet QUEDÓ en la red activa; `false`
- * si el usuario rechazó (4001), si la wallet no puede, o si contestó que sí
- * pero siguió en otra red. Si la wallet no conoce la red (4902) se la agrega
- * con `wallet_addEthereumChain`, derivando los params de la config de ESA red.
- */
 export async function switchToActiveNetwork() {
   if (!activeNetwork) return false;
   if (!hasWallet() || typeof window.ethereum?.request !== "function") {
@@ -200,35 +182,11 @@ export async function switchToActiveNetwork() {
   return walletChainId === activeNetwork.chainId;
 }
 
-/**
- * El transporte EIP-1193 de la wallet inyectada. Es UNO solo: lo usan tanto el
- * cliente de sondeo (con el que se le pregunta a la wallet antes de comprometer
- * nada) como el `walletClient` de la app, así que no se arman dos puentes
- * distintos hacia la misma wallet.
- */
 function walletTransport() {
   return custom(window.ethereum);
 }
 
-/**
- * Adopta como propia la sesión de la wallet con la cuenta `address`: resuelve
- * con qué red trabaja la app (la de la wallet, o la que manda `?chain=`),
- * construye el `walletClient`, se asegura de que la wallet esté en esa red
- * —pidiéndole que se mueva si no—, rehace el cliente de lectura y deja las
- * suscripciones a `accountsChanged` / `chainChanged`.
- *
- * Es el estado COMPARTIDO de `connectWallet()` y de `restoreWallet()`: una
- * cuenta recién autorizada y una cuenta YA autorizada tienen que dejar la app
- * exactamente igual (misma red, mismo `walletClient`, mismas lecturas), y por
- * eso la lógica vive acá una sola vez.
- *
- * Lanza si la wallet no se mueve a la red activa, y en ese caso NO deja
- * `walletClient` usable: no hay quién firme.
- */
 async function adoptWalletSession(transport, probeWalletClient, address) {
-  // La red la manda la wallet: si está en otra, se usa la config de ESA red. El
-  // `?chain=` de la URL gana igual (lo resuelve `effectiveNetwork`): es una
-  // instrucción, y quien tiene que moverse es la wallet.
   let walletChain = null;
   try {
     walletChain = await probeWalletClient.getChainId();
@@ -253,7 +211,10 @@ async function adoptWalletSession(transport, probeWalletClient, address) {
   if (activeNetwork && !walletMatchesActiveNetwork()) {
     const moved = await switchToActiveNetwork();
     if (!moved) {
-      const mensaje = networkMismatchMessage();
+      const mensaje = networkMismatchMessage(
+        walletChainId,
+        activeNetwork?.chainId
+      );
       walletClient = undefined;
       walletChainId = null;
       throw new Error(mensaje);
@@ -268,11 +229,6 @@ async function adoptWalletSession(transport, probeWalletClient, address) {
   ensureChainSubscription();
 }
 
-/**
- * Conectar la wallet: le PIDE permiso al usuario (`eth_requestAccounts`, que en
- * MetaMask es el popup de autorización) y adopta la sesión con la cuenta que
- * devuelva.
- */
 export async function connectWallet() {
   //Solo detecta la wallet solamente si el usuario tiene descargado el plugin en su browser.
   if (!hasWallet()) {
@@ -324,25 +280,6 @@ export async function restoreWallet() {
 
   await adoptWalletSession(transport, probeWalletClient, address);
   return address;
-}
-
-/**
- * Códigos EIP-1193 que la app tiene que distinguir para decidir un camino:
- * la wallet no conoce el método, o el usuario cerró el pedido.
- */
-function isUnsupportedMethod(error) {
-  const code = error?.code;
-  const text = String(error?.message ?? "");
-  return (
-    code === -32601 ||
-    /not supported|unsupported|does not exist|no such method/i.test(text)
-  );
-}
-
-function isUserRejection(error) {
-  const code = error?.code;
-  const text = String(error?.message ?? "");
-  return code === 4001 || /reject|denied|cancel/i.test(text);
 }
 
 /**
@@ -418,7 +355,10 @@ function ensureChainSubscription() {
       try {
         handler(activeNetwork);
       } catch (error) {
-        console.warn("Un handler de chainChanged falló:", error?.message ?? error);
+        console.warn(
+          "Un handler de chainChanged falló:",
+          error?.message ?? error
+        );
       }
     }
   });
@@ -466,16 +406,12 @@ export async function switchWalletAccount() {
     });
   } catch (error) {
     if (isUnsupportedMethod(error)) {
-      // La wallet no tiene selector de cuentas. El fallback es soltar el permiso
-      // y volver a pedirlo: ahí sí pregunta qué cuenta.
       await revokeWalletPermissions();
       return connectWallet();
     }
     if (isUserRejection(error)) return null; // cerró el selector: no toca nada
     throw error;
   }
-  // Con el permiso renovado, la wallet ya pregunta: la cuenta elegida es la que
-  // devuelve `eth_requestAccounts`.
   return connectWallet();
 }
 
